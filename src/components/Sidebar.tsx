@@ -152,9 +152,11 @@ export function Sidebar({
       <style>{`
         .sidebar { display:flex; flex-direction:column; gap:14px; height:100%; overflow-y:auto; padding:18px; }
         .brand { display:flex; align-items:center; gap:12px; }
-        .brand-mark { width:38px; height:38px; border-radius:10px; display:grid; place-items:center; font-size:20px;
-                      background:linear-gradient(135deg,#2b3a6b,#1c8a6e); color:#fff; }
-        .brand-name { font-weight:700; font-size:17px; letter-spacing:-0.02em; }
+        .brand-mark { width:40px; height:40px; border-radius:11px; display:grid; place-items:center; font-size:21px;
+                      background:linear-gradient(135deg,#3350a8,#1fae86); color:#fff;
+                      box-shadow:0 0 0 1px rgba(110,168,254,0.25), 0 10px 26px -10px rgba(110,168,254,0.6); }
+        .brand-name { font-weight:750; font-size:17px; letter-spacing:-0.02em;
+                      background:linear-gradient(90deg,#fff,#a9c0ff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
         .brand-sub { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; }
         .modes { display:flex; gap:6px; flex-wrap:wrap; }
         .chip-on { color:var(--accent-2); border-color:#2c5b4c; }
@@ -171,8 +173,9 @@ export function Sidebar({
         .log-err { color:var(--danger); }
         .repo-list { display:flex; flex-direction:column; gap:6px; }
         .empty-hint { font-size:12px; color:var(--muted); }
-        .repo-item { text-align:left; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:9px 11px; cursor:pointer; }
-        .repo-item.active { border-color:var(--accent); background:#182036; }
+        .repo-item { text-align:left; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:9px 11px; cursor:pointer; transition:border-color .15s, background .15s, transform .12s; }
+        .repo-item:hover { border-color:var(--border-2); transform:translateX(2px); }
+        .repo-item.active { border-color:var(--accent); background:#172038; box-shadow:inset 3px 0 0 var(--accent), var(--glow); }
         .repo-name { font-size:13px; }
         .repo-meta { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; margin-top:3px; }
         .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }

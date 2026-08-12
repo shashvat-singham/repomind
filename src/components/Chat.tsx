@@ -134,7 +134,12 @@ export function Chat({
                     <span className="pulse">●</span> {t.status}
                   </div>
                 )}
-                {t.text && <AnswerText text={t.text} citations={t.citations} onCite={onCite} />}
+                {t.text && (
+                  <div className="answer-wrap">
+                    <AnswerText text={t.text} citations={t.citations} onCite={onCite} />
+                    {busy && i === turns.length - 1 && !t.usage && <span className="cursor" />}
+                  </div>
+                )}
 
                 {t.citations.length > 0 && (
                   <div className="cites">
@@ -189,16 +194,24 @@ export function Chat({
       </form>
 
       <style>{`
-        .chat { display:flex; flex-direction:column; height:100%; }
-        .chat-scroll { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
-        .chat-empty { margin:auto; text-align:center; padding:24px; }
-        .chat-empty-title { font-size:20px; font-weight:600; margin-bottom:8px; }
-        .starters { display:grid; gap:8px; max-width:520px; margin:0 auto; }
-        .starters .btn { text-align:left; }
+        .chat { display:flex; flex-direction:column; height:100%; min-height:0; }
+        .chat-scroll { flex:1; min-height:0; overflow-y:auto; padding:24px 22px; display:flex; flex-direction:column; gap:18px; }
+        .chat-empty { margin:auto; text-align:center; padding:24px; animation:rise .5s ease; }
+        .chat-empty-title { font-size:22px; font-weight:650; margin-bottom:8px; letter-spacing:-0.02em;
+                            background:linear-gradient(90deg,#fff,#9db6ff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+        .starters { display:grid; gap:9px; max-width:540px; margin:0 auto; }
+        .starters .btn { text-align:left; padding:11px 14px; }
+        .turn { animation:rise .32s ease; }
         .turn-user { display:flex; justify-content:flex-end; }
-        .bubble-user { background:linear-gradient(180deg,#243056,#1b2340); border:1px solid #33406b; padding:10px 14px;
-                       border-radius:14px 14px 4px 14px; max-width:80%; font-size:14px; }
+        .bubble-user { background:linear-gradient(180deg,#2a3766,#1b2340); border:1px solid #3a4a83; padding:11px 15px;
+                       border-radius:15px 15px 5px 15px; max-width:82%; font-size:14px; line-height:1.5;
+                       box-shadow:0 10px 24px -16px rgba(110,168,254,0.5); }
         .bubble-assistant { max-width:100%; }
+        .answer-wrap { position:relative; }
+        .cursor { display:inline-block; width:8px; height:15px; margin-left:2px; vertical-align:text-bottom;
+                  background:var(--accent); border-radius:2px; animation:blink 1s steps(2) infinite; }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+        @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
         .trace { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
         .trace-step { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted);
                       background:var(--panel-2); border:1px solid var(--border); border-radius:999px; padding:3px 9px; }
@@ -208,15 +221,20 @@ export function Chat({
         .status-line .pulse { color:var(--accent-2); }
         .cites { display:flex; flex-direction:column; gap:6px; margin-top:14px; }
         .cite-card { display:flex; align-items:center; gap:10px; text-align:left; background:var(--panel-2);
-                     border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer; transition:border-color .15s; }
-        .cite-card:hover { border-color:var(--accent); }
+                     border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer;
+                     transition:border-color .15s, transform .15s, box-shadow .15s; }
+        .cite-card:hover { border-color:var(--accent); transform:translateX(3px);
+                           box-shadow:-3px 0 0 -1px var(--accent), 0 8px 20px -14px rgba(110,168,254,0.6); }
         .cite-num { width:20px; height:20px; flex:none; display:grid; place-items:center; background:#1c2136;
                     border:1px solid #33406b; border-radius:6px; color:var(--accent); font-size:11px; font-family:ui-monospace,monospace; }
         .cite-path { font-size:12.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .cite-lines { color:var(--muted); font-size:12px; margin-left:auto; }
         .usage { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; font-size:11.5px; color:var(--muted); align-items:center; }
         .chip-live { color:var(--accent-2); border-color:#2c5b4c; }
-        .composer { display:flex; gap:10px; padding:14px; border-top:1px solid var(--border); background:var(--panel); }
+        .composer { display:flex; gap:10px; padding:14px 16px; border-top:1px solid var(--border);
+                    background:linear-gradient(180deg, rgba(15,17,24,0.6), var(--panel)); backdrop-filter:blur(8px); }
+        .composer .input { transition:border-color .16s, box-shadow .16s; }
+        .composer .input:focus { box-shadow:0 0 0 3px rgba(110,168,254,0.14); }
       `}</style>
     </div>
   );

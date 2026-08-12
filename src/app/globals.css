@@ -1,16 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #0a0b0f;
-  --panel: #12141c;
-  --panel-2: #171a24;
-  --border: #232735;
-  --text: #e6e9f0;
+  --bg: #08090d;
+  --bg-2: #0b0d13;
+  --panel: #0f1118;
+  --panel-2: #151824;
+  --panel-3: #1a1e2b;
+  --border: #222634;
+  --border-2: #2c3242;
+  --text: #eaedf4;
   --muted: #8b92a7;
+  --muted-2: #626a7e;
   --accent: #6ea8fe;
   --accent-2: #7ee2c9;
+  --accent-3: #c792ea;
   --danger: #ff6b6b;
   --warn: #ffcc66;
+  --glow: 0 0 0 1px rgba(110, 168, 254, 0.14), 0 8px 30px -12px rgba(110, 168, 254, 0.25);
 }
 
 html,
@@ -19,10 +25,27 @@ body {
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Layered ambient background — subtle, professional depth. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(900px 500px at 78% -8%, rgba(110, 168, 254, 0.10), transparent 60%),
+    radial-gradient(760px 520px at 6% 108%, rgba(126, 226, 201, 0.07), transparent 55%),
+    linear-gradient(180deg, var(--bg-2), var(--bg));
 }
 
 * {
   border-color: var(--border);
+}
+
+::selection {
+  background: rgba(110, 168, 254, 0.28);
 }
 
 .mono {
@@ -36,24 +59,37 @@ body {
 }
 
 .btn {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-2);
   background: var(--panel-2);
   color: var(--text);
   border-radius: 10px;
   padding: 0.5rem 0.9rem;
   font-size: 0.875rem;
-  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.12s ease, box-shadow 0.16s ease;
 }
 .btn:hover:not(:disabled) {
   border-color: var(--accent);
+  background: var(--panel-3);
+  box-shadow: 0 6px 18px -12px rgba(110, 168, 254, 0.6);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 .btn-primary {
-  background: linear-gradient(180deg, #2b3350, #1c2136);
-  border-color: #33406b;
+  background: linear-gradient(180deg, #3a4b86, #263056);
+  border-color: #3f4f83;
+  color: #fff;
+  font-weight: 550;
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #445699, #2b376a);
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px -10px rgba(110, 168, 254, 0.55);
 }
 
 .input {

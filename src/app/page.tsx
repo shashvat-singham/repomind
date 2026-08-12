@@ -81,15 +81,16 @@ export default function Home() {
 
       <style>{`
         .app { display:grid; grid-template-columns:300px 1fr 380px; height:100vh; overflow:hidden; }
-        .col-side { border-right:1px solid var(--border); background:var(--panel); min-width:0; }
-        .col-main { display:flex; flex-direction:column; min-width:0; background:var(--bg); }
-        .col-insights { border-left:1px solid var(--border); background:var(--panel); min-width:0; }
-        .main-head { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid var(--border); }
+        .col-side { border-right:1px solid var(--border); background:linear-gradient(180deg, rgba(21,24,36,0.5), var(--panel)); min-width:0; backdrop-filter:blur(6px); }
+        .col-main { display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--bg); }
+        .col-insights { border-left:1px solid var(--border); background:var(--panel); min-width:0; min-height:0; overflow:hidden; }
+        .main-head { display:flex; align-items:center; justify-content:space-between; padding:16px 22px;
+                     border-bottom:1px solid var(--border); background:linear-gradient(180deg, rgba(15,17,24,0.7), transparent); }
         .main-title { font-size:16px; font-weight:650; letter-spacing:-0.02em; }
         .main-sub { font-size:12px; color:var(--muted); margin-top:2px; }
         .head-badges { display:flex; gap:6px; }
         .chip-on { color:var(--accent-2); border-color:#2c5b4c; }
-        .main-chat { flex:1; min-height:0; }
+        .main-chat { flex:1; min-height:0; overflow:hidden; }
         @media (max-width: 1100px) {
           .app { grid-template-columns:260px 1fr; }
           .col-insights { display:none; }

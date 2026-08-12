@@ -84,8 +84,10 @@ export function InsightsPanel({ repoId, refreshKey }: { repoId: string | null; r
         .tab.active { color:var(--text); border-bottom-color:var(--accent); }
         .insights-body { flex:1; overflow-y:auto; padding:16px; }
         .kpi-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; }
-        .kpi { background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:11px 12px; }
-        .kpi-val { font-size:22px; font-weight:700; letter-spacing:-0.02em; }
+        .kpi { background:linear-gradient(180deg,var(--panel-3),var(--panel-2)); border:1px solid var(--border-2);
+               border-radius:12px; padding:12px 13px; transition:border-color .15s, box-shadow .15s; }
+        .kpi:hover { border-color:var(--accent); box-shadow:var(--glow); }
+        .kpi-val { font-size:23px; font-weight:750; letter-spacing:-0.03em; }
         .kpi-lab { font-size:11px; color:var(--muted); margin-top:2px; }
         .kpi-accent { color:var(--accent-2); }
         .panel-title { font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin:14px 0 8px; }

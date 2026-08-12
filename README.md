@@ -1,5 +1,9 @@
 # RepoMind — Codebase Intelligence Agent
 
+**▶ Live demo: https://repomind-teal.vercel.app** · [MCP endpoint](https://repomind-teal.vercel.app/api/mcp) · CI: typecheck + tests + eval gate + build
+
+> The live demo boots with a pre-indexed sample service (`demo/acme-service`) so you can ask questions immediately — try *"How is authentication implemented?"* Paste any public repo (e.g. `honojs/hono`) to index your own.
+
 Point it at any public GitHub repo. It ingests the code with **AST-aware chunking**, indexes it with **hybrid retrieval** (dense vectors + lexical BM25 fused with Reciprocal Rank Fusion, in one SQL query over pgvector), and lets you chat with an **agentic tool loop** that answers architecture, "where is X", and how-does-this-work questions — every claim carrying a **clickable citation back to the exact file and line**.
 
 The same repo tools are exposed as an **MCP server** over Streamable HTTP, so Claude Desktop / Cursor can use the deployed backend directly. Retrieval quality is defended by an **eval harness** (recall@k · MRR · nDCG) wired as a **CI regression gate**.

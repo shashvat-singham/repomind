@@ -4,7 +4,10 @@ import { rateLimit, clientKey } from "@/lib/agent/ratelimit";
 import { sseFromGenerator } from "@/lib/sse";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// 60s is the Vercel Hobby ceiling. Ingestion streams the tarball and embeds
+// locally, so typical repos finish well under this; very large repos are bounded
+// by the MAX_FILES cap in the ingest pipeline.
+export const maxDuration = 60;
 
 /**
  * Kicks off repo ingestion and streams live progress (resolving → files →

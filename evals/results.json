@@ -1,0 +1,157 @@
+{
+  "generatedAt": "2026-08-12T20:03:10.232Z",
+  "embeddingModel": "local-hashing-vectorizer-1536 (1536d)",
+  "backend": "pglite",
+  "perConfig": [
+    {
+      "config": "dense-only",
+      "metrics": {
+        "n": 14,
+        "recallAt5": 0.9642857142857143,
+        "recallAt10": 0.9642857142857143,
+        "hitAt5": 1,
+        "precisionAt5": 0.24642857142857147,
+        "mrr": 0.9285714285714286,
+        "ndcgAt10": 0.9183731527930268
+      }
+    },
+    {
+      "config": "lexical-only",
+      "metrics": {
+        "n": 14,
+        "recallAt5": 0.9642857142857143,
+        "recallAt10": 0.9642857142857143,
+        "hitAt5": 1,
+        "precisionAt5": 0.48095238095238096,
+        "mrr": 0.8928571428571429,
+        "ndcgAt10": 0.8845108406298486
+      }
+    },
+    {
+      "config": "hybrid (RRF)",
+      "metrics": {
+        "n": 14,
+        "recallAt5": 0.9642857142857143,
+        "recallAt10": 0.9642857142857143,
+        "hitAt5": 1,
+        "precisionAt5": 0.23571428571428577,
+        "mrr": 1,
+        "ndcgAt10": 0.9548269873886827
+      }
+    }
+  ],
+  "perCase": [
+    {
+      "id": "auth-login",
+      "question": "How does a user log in and how are credentials verified?",
+      "probes": "semantic",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/api/routes.ts"
+    },
+    {
+      "id": "password-hashing",
+      "question": "What algorithm is used to hash passwords?",
+      "probes": "both",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/auth/password.ts"
+    },
+    {
+      "id": "session-ttl",
+      "question": "How long are sessions valid before they expire?",
+      "probes": "semantic",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/auth/session.ts"
+    },
+    {
+      "id": "session-validate",
+      "question": "Where do we validate a session token and return the user id?",
+      "probes": "both",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/auth/session.ts"
+    },
+    {
+      "id": "stripe-charge",
+      "question": "How do we charge a customer's card with Stripe?",
+      "probes": "lexical",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/payments/stripe.ts"
+    },
+    {
+      "id": "refund",
+      "question": "Can we issue a refund, and where is that handled?",
+      "probes": "semantic",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/payments/stripe.ts"
+    },
+    {
+      "id": "rate-limit",
+      "question": "How is rate limiting implemented and what backs it?",
+      "probes": "both",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/api/rate-limit.ts"
+    },
+    {
+      "id": "login-throttle",
+      "question": "How many login attempts are allowed before we throttle?",
+      "probes": "semantic",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/api/routes.ts"
+    },
+    {
+      "id": "config-required",
+      "question": "Which environment variables are required to boot the service?",
+      "probes": "both",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/config.ts"
+    },
+    {
+      "id": "db-pool",
+      "question": "How does the app connect to Postgres?",
+      "probes": "semantic",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/db/client.ts"
+    },
+    {
+      "id": "email-retry",
+      "question": "How does the email queue handle failures and retries?",
+      "probes": "semantic",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/jobs/email-queue.ts"
+    },
+    {
+      "id": "backoff",
+      "question": "Where is exponential backoff used?",
+      "probes": "lexical",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/jobs/email-queue.ts"
+    },
+    {
+      "id": "checkout-flow",
+      "question": "What happens end to end when an authenticated user checks out?",
+      "probes": "semantic",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/api/routes.ts"
+    },
+    {
+      "id": "session-revoke",
+      "question": "How do we log a user out / revoke their session?",
+      "probes": "both",
+      "hybridHit": true,
+      "hybridRR": 1,
+      "topPath": "src/auth/session.ts"
+    }
+  ]
+}

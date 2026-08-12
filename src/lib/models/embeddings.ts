@@ -1,0 +1,159 @@
+import { config, EMBED_DIM, usingOpenAI } from "@/lib/config";
+
+/**
+ * Embedding provider abstraction.
+ *
+ * Two implementations, chosen at runtime by {@link config}:
+ *
+ *  1. OpenAI `text-embedding-3-small` (1536-d) when an API key is present.
+ *  2. A local, deterministic "hashing vectorizer" otherwise. It is NOT a neural
+ *     model — it is the classic feature-hashing trick (a la scikit-learn's
+ *     HashingVectorizer) over word unigrams/bigrams and character 3–5-grams,
+ *     L2-normalised. That gives genuine lexical overlap signal (shared
+ *     identifiers, substrings, camelCase parts) with zero dependencies and zero
+ *     network, which is exactly what you want for a repo that must boot and pass
+ *     CI with no secrets. Swapping in OpenAI is a one-env-var change and the
+ *     schema/dimension stays identical.
+ */
+
+export interface EmbeddingProvider {
+  readonly id: string;
+  readonly dim: number;
+  embed(texts: string[]): Promise<number[][]>;
+}
+
+// ── Local hashing vectorizer ────────────────────────────────────────────────
+
+/** FNV-1a 32-bit — fast, stable, well-distributed for the hashing trick. */
+function fnv1a(input: string, seed = 0x811c9dc5): number {
+  let h = seed >>> 0;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+/** Split code/text into normalised tokens, also breaking camelCase/snake_case. */
+function tokenize(text: string): string[] {
+  const raw = text.toLowerCase().match(/[a-z0-9_]+/g) ?? [];
+  const out: string[] = [];
+  for (const t of raw) {
+    out.push(t);
+    // break identifiers into their parts so `getUserToken` overlaps `user`
+    for (const part of t.split("_")) {
+      if (part && part !== t) out.push(part);
+    }
+  }
+  // camelCase splitting on the original text
+  const camel = text.match(/[A-Z]?[a-z]+|[A-Z]+(?![a-z])|[0-9]+/g) ?? [];
+  for (const c of camel) {
+    const lc = c.toLowerCase();
+    if (lc.length > 1) out.push(lc);
+  }
+  return out;
+}
+
+function charNGrams(token: string, min = 3, max = 5): string[] {
+  const grams: string[] = [];
+  const s = `^${token}$`;
+  for (let n = min; n <= max; n++) {
+    for (let i = 0; i + n <= s.length; i++) grams.push(s.slice(i, i + n));
+  }
+  return grams;
+}
+
+/**
+ * Hash a single feature into the vector using the signed-hash trick: one hash
+ * picks the bucket, one bit of a second hash picks the sign. Signed hashing
+ * makes collisions cancel in expectation instead of always adding, which keeps
+ * the approximation closer to a true bag-of-features dot product.
+ */
+function addFeature(vec: Float64Array, feature: string, weight: number): void {
+  const h = fnv1a(feature);
+  const bucket = h % vec.length;
+  const sign = (h & 0x10000) === 0 ? 1 : -1;
+  vec[bucket]! += sign * weight;
+}
+
+export function localEmbed(text: string, dim = EMBED_DIM): number[] {
+  const vec = new Float64Array(dim);
+  const tokens = tokenize(text);
+
+  // word unigrams + bigrams
+  for (let i = 0; i < tokens.length; i++) {
+    addFeature(vec, `w:${tokens[i]}`, 1);
+    if (i + 1 < tokens.length) addFeature(vec, `b:${tokens[i]}_${tokens[i + 1]}`, 0.6);
+  }
+  // character n-grams give sub-token robustness (typos, shared prefixes)
+  for (const t of tokens) {
+    if (t.length < 3) continue;
+    for (const g of charNGrams(t)) addFeature(vec, `c:${g}`, 0.35);
+  }
+
+  // L2 normalise so cosine == dot product and lengths don't dominate.
+  let norm = 0;
+  for (let i = 0; i < dim; i++) norm += vec[i]! * vec[i]!;
+  norm = Math.sqrt(norm) || 1;
+  const out = new Array<number>(dim);
+  for (let i = 0; i < dim; i++) out[i] = vec[i]! / norm;
+  return out;
+}
+
+const localProvider: EmbeddingProvider = {
+  id: "local-hashing-vectorizer-1536",
+  dim: EMBED_DIM,
+  async embed(texts) {
+    return texts.map((t) => localEmbed(t));
+  },
+};
+
+// ── OpenAI provider ─────────────────────────────────────────────────────────
+
+const openaiProvider: EmbeddingProvider = {
+  id: config.embeddingModel,
+  dim: EMBED_DIM,
+  async embed(texts) {
+    const res = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.embeddingModel,
+        input: texts,
+        dimensions: EMBED_DIM,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`OpenAI embeddings failed (${res.status}): ${body.slice(0, 300)}`);
+    }
+    const json = (await res.json()) as { data: { index: number; embedding: number[] }[] };
+    // Preserve input order — the API returns an index per row.
+    return json.data
+      .slice()
+      .sort((a, b) => a.index - b.index)
+      .map((d) => d.embedding);
+  },
+};
+
+export function getEmbeddingProvider(): EmbeddingProvider {
+  return usingOpenAI ? openaiProvider : localProvider;
+}
+
+/** Embed in batches to respect provider payload limits and keep memory bounded. */
+export async function embedBatched(
+  texts: string[],
+  batchSize = 96,
+): Promise<number[][]> {
+  const provider = getEmbeddingProvider();
+  const out: number[][] = [];
+  for (let i = 0; i < texts.length; i += batchSize) {
+    const batch = texts.slice(i, i + batchSize);
+    const vecs = await provider.embed(batch);
+    out.push(...vecs);
+  }
+  return out;
+}

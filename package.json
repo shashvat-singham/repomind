@@ -42,7 +42,8 @@
     "tailwindcss": "4.3.3",
     "tsx": "4.20.3",
     "typescript": "5.9.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.10",
+    "ws": "^8.21.3"
   },
   "engines": {
     "node": ">=20"

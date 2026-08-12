@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import type { ChatEvent, Citation, Usage } from "@/lib/types";
 import { postEventStream } from "@/lib/useEventStream";
+import { useSpeech } from "@/lib/useSpeech";
 import { AnswerText } from "./AnswerText";
 
 interface Turn {
@@ -11,6 +12,17 @@ interface Turn {
   usage?: Usage;
   trace: { tool: string; args: Record<string, unknown> }[];
   status?: string;
+}
+
+function MicIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
 }
 
 const STARTERS = [
@@ -33,6 +45,12 @@ export function Chat({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const speech = useSpeech();
+
+  const toggleMic = () => {
+    if (speech.listening) speech.stop();
+    else speech.start(input, setInput);
+  };
 
   const scrollToBottom = () => {
     requestAnimationFrame(() => {
@@ -42,6 +60,7 @@ export function Chat({
 
   async function ask(question: string) {
     if (!repoId || !question.trim() || busy) return;
+    if (speech.listening) speech.stop();
     setBusy(true);
     setInput("");
     const history = turns
@@ -181,17 +200,39 @@ export function Chat({
           ask(input);
         }}
       >
-        <input
-          className="input"
-          placeholder={ready ? "Ask about this repository…" : "Index a repository to begin"}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={!ready || busy}
-        />
+        <div className="composer-field">
+          <input
+            className="input"
+            placeholder={
+              speech.listening
+                ? "Listening… speak now"
+                : ready
+                  ? "Ask about this repository…"
+                  : "Index a repository to begin"
+            }
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={!ready || busy}
+          />
+          {speech.supported && (
+            <button
+              type="button"
+              className={`mic ${speech.listening ? "mic-on" : ""}`}
+              onClick={toggleMic}
+              disabled={!ready || busy}
+              title={speech.listening ? "Stop dictation" : "Dictate your question"}
+              aria-label="Voice input"
+            >
+              {speech.listening ? <span className="mic-rings" /> : null}
+              <MicIcon />
+            </button>
+          )}
+        </div>
         <button className="btn btn-primary" disabled={!ready || busy || !input.trim()}>
           {busy ? "…" : "Ask"}
         </button>
       </form>
+      {speech.error && <div className="mic-err">{speech.error}</div>}
 
       <style>{`
         .chat { display:flex; flex-direction:column; height:100%; min-height:0; }
@@ -232,9 +273,20 @@ export function Chat({
         .usage { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; font-size:11.5px; color:var(--muted); align-items:center; }
         .chip-live { color:var(--accent-2); border-color:#2c5b4c; }
         .composer { display:flex; gap:10px; padding:14px 16px; border-top:1px solid var(--border);
-                    background:linear-gradient(180deg, rgba(15,17,24,0.6), var(--panel)); backdrop-filter:blur(8px); }
-        .composer .input { transition:border-color .16s, box-shadow .16s; }
-        .composer .input:focus { box-shadow:0 0 0 3px rgba(110,168,254,0.14); }
+                    background:linear-gradient(180deg, rgba(15,17,24,0.6), var(--panel)); backdrop-filter:blur(8px); flex-wrap:wrap; }
+        .composer-field { position:relative; flex:1; display:flex; align-items:center; }
+        .composer-field .input { transition:border-color .16s, box-shadow .16s; padding-right:44px; }
+        .composer-field .input:focus { box-shadow:0 0 0 3px rgba(110,168,254,0.14); }
+        .mic { position:absolute; right:6px; top:50%; transform:translateY(-50%); width:32px; height:32px;
+               display:grid; place-items:center; border-radius:8px; border:1px solid var(--border-2);
+               background:var(--panel-3); color:var(--muted); cursor:pointer; transition:color .15s, border-color .15s, background .15s; }
+        .mic:hover:not(:disabled) { color:var(--accent); border-color:var(--accent); }
+        .mic:disabled { opacity:0.4; cursor:not-allowed; }
+        .mic-on { color:#fff; background:linear-gradient(180deg,#e0536b,#c23b52); border-color:#e0536b; }
+        .mic-rings { position:absolute; inset:-4px; border-radius:10px; border:2px solid rgba(224,83,107,0.6);
+                     animation:mic-pulse 1.3s ease-out infinite; }
+        @keyframes mic-pulse { 0% { transform:scale(0.85); opacity:0.9; } 100% { transform:scale(1.35); opacity:0; } }
+        .mic-err { font-size:11.5px; color:var(--danger); padding:0 16px 10px; background:var(--panel); }
       `}</style>
     </div>
   );

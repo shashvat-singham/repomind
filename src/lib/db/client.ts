@@ -22,8 +22,23 @@ export interface Db {
 let dbPromise: Promise<Db> | null = null;
 
 export function getDb(): Promise<Db> {
-  dbPromise ??= usingCloudDb ? initNeon() : initPglite();
+  dbPromise ??= (usingCloudDb ? initNeon() : initPglite()).then(afterInit);
   return dbPromise;
+}
+
+/**
+ * One-time post-init step: seed the demo repo so there's always something to
+ * query, even on a fresh ephemeral instance. Best-effort — a seed failure must
+ * never make the database unusable.
+ */
+async function afterInit(db: Db): Promise<Db> {
+  try {
+    const { seedDemoRepo } = await import("@/lib/db/seed");
+    await seedDemoRepo(db);
+  } catch (e) {
+    console.warn("[repomind] demo seed skipped:", (e as Error).message);
+  }
+  return db;
 }
 
 // ── Neon ────────────────────────────────────────────────────────────────────

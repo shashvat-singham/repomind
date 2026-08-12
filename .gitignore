@@ -12,3 +12,5 @@ next-env.d.ts
 coverage/
 .DS_Store
 npm-debug.log*
+
+.vercel

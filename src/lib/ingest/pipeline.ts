@@ -80,10 +80,11 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
   // A provider switch invalidates every stored vector: the content is identical,
   // so the incremental path would reuse all of it and the ON CONFLICT DO NOTHING
   // insert would leave the old embeddings in place — while the repo now claims to
-  // be indexed with the new model. Drop the chunks and re-embed from scratch.
-  if (modelChanged) {
-    await db.query(`DELETE FROM chunks WHERE repo_id = $1`, [id]);
-  }
+  // be indexed with the new model. The old chunks therefore have to go, but NOT
+  // yet: deleting up front means a provider that refuses the very first embedding
+  // call (quota, outage, bad key) destroys a working index and leaves nothing.
+  // The delete happens in `flush`, once embeddings are actually in hand.
+  let clearedForNewModel = !modelChanged;
 
   // Existing hashes → skip re-embedding unchanged chunks (incremental reindex).
   const existing = modelChanged
@@ -106,6 +107,12 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
     const texts = pending.map((c) => c.embedText);
     yield { type: "embedding" as const, done: 0, total: pending.length };
     const vectors = await embedBatched(texts, 96);
+    // Embedding succeeded, so the provider works — now it is safe to drop the
+    // vectors from the previous model.
+    if (!clearedForNewModel) {
+      await db.query(`DELETE FROM chunks WHERE repo_id = $1`, [id]);
+      clearedForNewModel = true;
+    }
     await insertChunks(
       db,
       pending.map((c, i) => ({
@@ -184,10 +191,15 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
       ms: Date.now() - started,
     };
   } catch (e) {
-    await db.query(`UPDATE repos SET status='error', error=$2 WHERE id=$1`, [
-      id,
-      (e as Error).message.slice(0, 500),
-    ]);
+    // Report the count that survived rather than leaving the pre-failure number
+    // on screen — a half-written index must not look intact.
+    const left = await db
+      .query<{ n: string }>(`SELECT count(*)::text AS n FROM chunks WHERE repo_id = $1`, [id])
+      .catch(() => [{ n: "0" }]);
+    await db.query(
+      `UPDATE repos SET status='error', error=$2, chunk_count=$3 WHERE id=$1`,
+      [id, (e as Error).message.slice(0, 500), Number(left[0]?.n ?? 0)],
+    );
     yield { type: "error", message: (e as Error).message };
   }
 }

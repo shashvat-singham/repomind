@@ -1,5 +1,5 @@
 import type { Db } from "@/lib/db/client";
-import { toSqlVector } from "@/lib/db/vector";
+import { insertChunks } from "@/lib/db/chunks";
 import { embedBatched } from "@/lib/models/embeddings";
 import { countTokens } from "@/lib/obs/tokens";
 import { chunkFile } from "@/lib/ingest/chunker";
@@ -40,21 +40,23 @@ export async function seedDemoRepo(db: Db): Promise<void> {
     (c) => `${c.path} ${c.symbol ?? ""} ${c.symbolKind ?? ""}\n${c.content}`,
   );
   const vectors = await embedBatched(embedText);
-  for (let i = 0; i < chunks.length; i++) {
-    const c = chunks[i]!;
-    await db.query(
-      `INSERT INTO chunks
-         (repo_id, path, lang, symbol, symbol_kind, start_line, end_line,
-          content, context, content_hash, token_count, embedding)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::vector)
-       ON CONFLICT (repo_id, content_hash) DO NOTHING`,
-      [
-        DEMO_REPO_ID, c.path, c.lang, c.symbol, c.symbolKind, c.startLine,
-        c.endLine, c.content, `In ${c.path}`, c.contentHash,
-        countTokens(c.content), toSqlVector(vectors[i]!),
-      ],
-    );
-  }
+  await insertChunks(
+    db,
+    chunks.map((c, i) => ({
+      repoId: DEMO_REPO_ID,
+      path: c.path,
+      lang: c.lang,
+      symbol: c.symbol,
+      symbolKind: c.symbolKind,
+      startLine: c.startLine,
+      endLine: c.endLine,
+      content: c.content,
+      context: `In ${c.path}`,
+      contentHash: c.contentHash,
+      tokenCount: countTokens(c.content),
+      embedding: vectors[i]!,
+    })),
+  );
 
   const count = await db.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM chunks WHERE repo_id = $1`,

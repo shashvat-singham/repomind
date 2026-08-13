@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db/client";
-import { toSqlVector } from "@/lib/db/vector";
+import { insertChunks } from "@/lib/db/chunks";
 import { embedBatched, getEmbeddingProvider } from "@/lib/models/embeddings";
 import { hasLLM } from "@/lib/models/llm";
 import { countTokens } from "@/lib/obs/tokens";
@@ -86,22 +86,23 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
     const texts = pending.map((c) => c.embedText);
     yield { type: "embedding" as const, done: 0, total: pending.length };
     const vectors = await embedBatched(texts, 96);
-    for (let i = 0; i < pending.length; i++) {
-      const c = pending[i]!;
-      const vec = vectors[i]!;
-      await db.query(
-        `INSERT INTO chunks
-           (repo_id, path, lang, symbol, symbol_kind, start_line, end_line,
-            content, context, content_hash, token_count, embedding)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::vector)
-         ON CONFLICT (repo_id, content_hash) DO NOTHING`,
-        [
-          id, c.path, c.lang, c.symbol, c.symbolKind, c.startLine, c.endLine,
-          c.content, c.context, c.contentHash, countTokens(c.embedText),
-          toSqlVector(vec),
-        ],
-      );
-    }
+    await insertChunks(
+      db,
+      pending.map((c, i) => ({
+        repoId: id,
+        path: c.path,
+        lang: c.lang,
+        symbol: c.symbol,
+        symbolKind: c.symbolKind,
+        startLine: c.startLine,
+        endLine: c.endLine,
+        content: c.content,
+        context: c.context,
+        contentHash: c.contentHash,
+        tokenCount: countTokens(c.embedText),
+        embedding: vectors[i]!,
+      })),
+    );
     yield { type: "upserting" as const, done: pending.length, total: pending.length };
     pending.length = 0;
   };
@@ -129,12 +130,15 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
 
     // Prune chunks that no longer exist in the repo (deleted/renamed files).
     if (seenHashes.size > 0) {
-      const keep = [...seenHashes];
-      // Delete in one statement using a NOT IN over the kept hashes.
-      const placeholders = keep.map((_, i) => `$${i + 2}`).join(",");
+      // Pass the kept hashes as ONE json parameter rather than N bind
+      // placeholders. A large repo yields thousands of chunks, and a NOT IN with
+      // thousands of placeholders both blows past sane statement sizes and, on
+      // Neon's HTTP driver, ships every hash as a separate bound parameter.
       await db.query(
-        `DELETE FROM chunks WHERE repo_id = $1 AND content_hash NOT IN (${placeholders})`,
-        [id, ...keep],
+        `DELETE FROM chunks
+          WHERE repo_id = $1
+            AND content_hash NOT IN (SELECT jsonb_array_elements_text($2::jsonb))`,
+        [id, JSON.stringify([...seenHashes])],
       );
     }
 

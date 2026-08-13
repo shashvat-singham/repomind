@@ -124,6 +124,13 @@ Tools exposed: `list_repos`, `search_code`, `read_file`, `list_symbols`, `repo_s
 2. It deploys and **runs with no env vars** (PGlite on `/tmp`, local models).
 3. For durable, multi-instance storage and real LLM answers, add `DATABASE_URL` (Neon) and `OPENAI_API_KEY` in Project → Settings → Environment Variables, then redeploy.
 
+> **Set `DATABASE_URL` before indexing your own repos.** Without it, PGlite lives in each
+> serverless instance's own `/tmp`. A single page load fans out across several instances, so a repo
+> ingested on one is invisible to the `/api/repos` and `/api/chat` calls routed to another — the
+> ingest log reports success and the repo then appears to vanish. Every instance seeds the same demo
+> repo so the deployment is never empty, but indexing real repos needs shared storage. Locally this
+> never shows up: one dev server is one process.
+
 ---
 
 ## Layout

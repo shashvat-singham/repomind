@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db/client";
+import { currentEmbedModelId } from "@/lib/config";
 import { toSqlVector } from "@/lib/db/vector";
 import { embedBatched } from "@/lib/models/embeddings";
 
@@ -34,10 +35,10 @@ export async function lookupCache(
   }>(
     `SELECT question, answer_json, (embedding <=> $2::vector) AS distance
      FROM semantic_cache
-     WHERE repo_id = $1
+     WHERE repo_id = $1 AND embed_model = $3
      ORDER BY embedding <=> $2::vector
      LIMIT 1`,
-    [repoId, toSqlVector(vec!)],
+    [repoId, toSqlVector(vec!), currentEmbedModelId()],
   );
   const top = rows[0];
   if (!top) return null;
@@ -64,8 +65,8 @@ export async function storeCache(
   const [vec] = await embedBatched([question], 1);
   const db = await getDb();
   await db.query(
-    `INSERT INTO semantic_cache (repo_id, question, embedding, answer_json)
-     VALUES ($1, $2, $3::vector, $4)`,
-    [repoId, question, toSqlVector(vec!), JSON.stringify(answer)],
+    `INSERT INTO semantic_cache (repo_id, question, embedding, answer_json, embed_model)
+     VALUES ($1, $2, $3::vector, $4, $5)`,
+    [repoId, question, toSqlVector(vec!), JSON.stringify(answer), currentEmbedModelId()],
   );
 }

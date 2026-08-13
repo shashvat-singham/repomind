@@ -1,29 +1,41 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModel } from "ai";
-import { config, usingOpenAI } from "@/lib/config";
+import { config, usingGemini, usingOpenAI } from "@/lib/config";
 
 /**
- * Generation layer. When an OpenAI key is present we return a real AI SDK
- * language model (used for the agentic tool loop, contextual-retrieval
- * enrichment, reranking and LLM-judge evals). Without a key, callers fall back
- * to the deterministic, extractive helpers below so every feature still has a
- * working — if simpler — implementation.
+ * Generation layer. When an OpenAI or Gemini key is present we return a real AI
+ * SDK language model (used for the agentic tool loop, contextual-retrieval
+ * enrichment, reranking and LLM-judge evals). Both are tool-calling models
+ * behind the same AI SDK interface, so the agent code is provider-agnostic.
+ * Without a key, callers fall back to the deterministic, extractive helpers
+ * below so every feature still has a working — if simpler — implementation.
  */
 
 let cached: LanguageModel | null | undefined;
 
 export function getChatModel(): LanguageModel | null {
   if (cached !== undefined) return cached;
-  if (!usingOpenAI) {
+  if (usingOpenAI) {
+    const openai = createOpenAI({ apiKey: config.openaiApiKey });
+    cached = openai(config.chatModel);
+  } else if (usingGemini) {
+    const google = createGoogleGenerativeAI({ apiKey: config.geminiApiKey });
+    cached = google(config.geminiChatModel);
+  } else {
     cached = null;
-    return null;
   }
-  const openai = createOpenAI({ apiKey: config.openaiApiKey });
-  cached = openai(config.chatModel);
   return cached;
 }
 
-export const hasLLM = usingOpenAI;
+/** Which model id the active provider will bill under — used for cost metering. */
+export function activeChatModelId(): string {
+  if (usingOpenAI) return config.chatModel;
+  if (usingGemini) return config.geminiChatModel;
+  return "local";
+}
+
+export const hasLLM = usingOpenAI || usingGemini;
 
 /**
  * Deterministic extractive summariser used as the local fallback for

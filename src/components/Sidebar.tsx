@@ -91,8 +91,8 @@ export function Sidebar({
           <span className={`chip ${mode.db === "neon" ? "chip-on" : ""}`} title="Vector store">
             {mode.db === "neon" ? "Neon + pgvector" : "PGlite + pgvector"}
           </span>
-          <span className={`chip ${mode.models === "openai" ? "chip-on" : ""}`} title="Model provider">
-            {mode.models === "openai" ? "OpenAI" : "local models"}
+          <span className={`chip ${mode.models !== "local" ? "chip-on" : ""}`} title="Model provider">
+            {mode.models === "openai" ? "OpenAI" : mode.models === "gemini" ? "Gemini" : "local models"}
           </span>
         </div>
       )}
@@ -151,19 +151,29 @@ export function Sidebar({
       <div className="section-label">Indexed repos</div>
       <div className="repo-list">
         {repos.length === 0 && <div className="empty-hint">None yet — index one above.</div>}
-        {repos.map((r) => (
-          <button
-            key={r.id}
-            className={`repo-item ${selected === r.id ? "active" : ""}`}
-            onClick={() => onSelect(r.id)}
-          >
-            <div className="repo-name mono">{r.owner}/{r.name}</div>
-            <div className="repo-meta">
-              <span className={`dot dot-${r.status}`} />
-              {r.ref} · {r.files} files · {r.chunks} chunks
-            </div>
-          </button>
-        ))}
+        {repos.map((r) => {
+          // Indexed under a different embedding model: its vectors are in
+          // another space, so searching them would return noise.
+          const stale = !!mode && !!r.embedModel && r.embedModel !== mode.embedModel;
+          return (
+            <button
+              key={r.id}
+              className={`repo-item ${selected === r.id ? "active" : ""}`}
+              onClick={() => onSelect(r.id)}
+            >
+              <div className="repo-name mono">{r.owner}/{r.name}</div>
+              <div className="repo-meta">
+                <span className={`dot dot-${stale ? "error" : r.status}`} />
+                {r.ref} · {r.files} files · {r.chunks} chunks
+              </div>
+              {stale && (
+                <div className="repo-stale">
+                  indexed with {r.embedModel} — re-index to use {mode.embedModel}
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <div className="side-foot">
@@ -203,6 +213,7 @@ export function Sidebar({
         .repo-item.active { border-color:var(--accent); background:#172038; box-shadow:inset 3px 0 0 var(--accent), var(--glow); }
         .repo-name { font-size:13px; }
         .repo-meta { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; margin-top:3px; }
+        .repo-stale { font-size:10.5px; line-height:1.45; color:var(--danger); margin-top:4px; }
         .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); }
         .dot-ready { background:var(--accent-2); }
         .dot-indexing { background:var(--warn); }

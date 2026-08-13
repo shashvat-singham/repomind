@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db/client";
 import { insertChunks } from "@/lib/db/chunks";
 import { embedBatched, getEmbeddingProvider } from "@/lib/models/embeddings";
 import { hasLLM } from "@/lib/models/llm";
+import { config } from "@/lib/config";
 import { countTokens } from "@/lib/obs/tokens";
 import { chunkFile } from "@/lib/ingest/chunker";
 import { enrichChunk, type EnrichedChunk } from "@/lib/ingest/contextual";
@@ -59,6 +60,15 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
   const db = await getDb();
   const provider = getEmbeddingProvider();
 
+  // What model were the stored vectors produced with? Read this BEFORE the
+  // upsert overwrites it.
+  const prior = await db.query<{ embed_model: string | null }>(
+    `SELECT embed_model FROM repos WHERE id = $1`,
+    [id],
+  );
+  const priorModel = prior[0]?.embed_model ?? null;
+  const modelChanged = priorModel !== null && priorModel !== provider.id;
+
   await db.query(
     `INSERT INTO repos (id, owner, name, ref, commit_sha, status, embed_model)
      VALUES ($1,$2,$3,$4,$5,'indexing',$6)
@@ -67,11 +77,21 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
     [id, ref.owner, ref.name, resolved.ref, resolved.sha, provider.id],
   );
 
+  // A provider switch invalidates every stored vector: the content is identical,
+  // so the incremental path would reuse all of it and the ON CONFLICT DO NOTHING
+  // insert would leave the old embeddings in place — while the repo now claims to
+  // be indexed with the new model. Drop the chunks and re-embed from scratch.
+  if (modelChanged) {
+    await db.query(`DELETE FROM chunks WHERE repo_id = $1`, [id]);
+  }
+
   // Existing hashes → skip re-embedding unchanged chunks (incremental reindex).
-  const existing = await db.query<{ content_hash: string }>(
-    `SELECT content_hash FROM chunks WHERE repo_id = $1`,
-    [id],
-  );
+  const existing = modelChanged
+    ? []
+    : await db.query<{ content_hash: string }>(
+        `SELECT content_hash FROM chunks WHERE repo_id = $1`,
+        [id],
+      );
   const existingHashes = new Set(existing.map((r) => r.content_hash));
   const seenHashes = new Set<string>();
 
@@ -118,7 +138,7 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
           reused++;
           continue; // unchanged since last ingest
         }
-        const enriched = await enrichChunk(chunk, slug, hasLLM);
+        const enriched = await enrichChunk(chunk, slug, hasLLM && config.contextualLLM);
         tokens += countTokens(enriched.embedText);
         pending.push(enriched);
         if (pending.length >= BATCH) {

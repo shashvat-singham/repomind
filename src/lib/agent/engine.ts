@@ -1,6 +1,6 @@
 import { streamText, stepCountIs, type ModelMessage } from "ai";
-import { getChatModel } from "@/lib/models/llm";
-import { config } from "@/lib/config";
+import { activeChatModelId, getChatModel } from "@/lib/models/llm";
+import { usingOpenAI } from "@/lib/config";
 import { countTokens, estimateCost } from "@/lib/obs/tokens";
 import { buildTools, SYSTEM_PROMPT, type ToolContext } from "@/lib/agent/tools";
 import { searchCode, type SearchHit } from "@/lib/agent/tools-core";
@@ -28,7 +28,7 @@ export type AgentEvent =
       type: "done";
       answer: string;
       usage: {
-        mode: "openai" | "local";
+        mode: "openai" | "gemini" | "local";
         tokensIn: number;
         tokensOut: number;
         costUsd: number;
@@ -121,10 +121,10 @@ async function* runLLM(
       type: "done",
       answer,
       usage: {
-        mode: "openai",
+        mode: usingOpenAI ? "openai" : "gemini",
         tokensIn,
         tokensOut,
-        costUsd: estimateCost(config.chatModel, tokensIn, tokensOut),
+        costUsd: estimateCost(activeChatModelId(), tokensIn, tokensOut),
         retrieveMs: (firstToken || Date.now()) - t0,
         generateMs: Date.now() - (firstToken || Date.now()),
         totalMs: Date.now() - t0,
@@ -132,14 +132,18 @@ async function* runLLM(
     };
   } catch (e) {
     // Any LLM/tool failure degrades to the local path rather than 500ing.
-    yield { type: "status", stage: "generating", detail: "LLM unavailable — using local synthesis" };
-    yield* runLocal(input);
+    yield {
+      type: "status",
+      stage: "generating",
+      detail: `model call failed (${(e as Error).message.slice(0, 120)}) — using local synthesis`,
+    };
+    yield* runLocal(input, true);
   }
 }
 
 // ── Local deterministic path ────────────────────────────────────────────────
 
-async function* runLocal(input: AskInput): AsyncGenerator<AgentEvent> {
+async function* runLocal(input: AskInput, degraded = false): AsyncGenerator<AgentEvent> {
   const t0 = Date.now();
   yield { type: "status", stage: "retrieving" };
   yield { type: "trace", tool: "search_code", args: { query: input.question, k: 8 } };
@@ -157,7 +161,7 @@ async function* runLocal(input: AskInput): AsyncGenerator<AgentEvent> {
 
   yield { type: "status", stage: "generating" };
   const gStart = Date.now();
-  const answer = synthesizeLocalAnswer(input.question, hits);
+  const answer = synthesizeLocalAnswer(input.question, hits, degraded);
   // Stream it out in word chunks so the UI feels live even offline.
   for (const chunk of chunkText(answer)) {
     yield { type: "token", text: chunk };

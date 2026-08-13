@@ -3,6 +3,7 @@ import { runAgent, type AgentEvent } from "@/lib/agent/engine";
 import { screenQuestion } from "@/lib/agent/guardrails";
 import { lookupCache, storeCache } from "@/lib/agent/cache";
 import { rateLimit, clientKey } from "@/lib/agent/ratelimit";
+import { hasLLM } from "@/lib/models/llm";
 import { logQuery } from "@/lib/obs/log";
 import { sseFromGenerator } from "@/lib/sse";
 import type { SearchHit } from "@/lib/agent/tools-core";
@@ -112,7 +113,11 @@ async function* orchestrate(
   }
 
   // 3) Persist to cache + telemetry (only cache substantive, no-history answers).
-  if (finalAnswer && (!history || history.length === 0)) {
+  // A "local" answer while an LLM is configured means the model call failed and
+  // we degraded. Caching that would keep serving the fallback long after the
+  // provider recovers, so skip it.
+  const degraded = hasLLM && usage?.mode === "local";
+  if (finalAnswer && !degraded && (!history || history.length === 0)) {
     await storeCache(repoId, question, { answer: finalAnswer, citations }).catch(() => {});
   }
   if (usage) {

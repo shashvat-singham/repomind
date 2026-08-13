@@ -95,10 +95,19 @@ Everything is optional — see [`.env.example`](.env.example).
 
 | Var | Effect |
 |---|---|
-| `OPENAI_API_KEY` | Switches embeddings to `text-embedding-3-small` and enables the full LLM agent loop, contextual enrichment, and LLM reranking. |
+| `OPENAI_API_KEY` | Switches embeddings to `text-embedding-3-small` and enables the full LLM agent loop and LLM reranking. |
+| `GEMINI_API_KEY` | Same, via Google AI Studio — `gemini-embedding-001` at 1536-d + `gemini-3.1-flash-lite`. Used when no OpenAI key is set. |
 | `DATABASE_URL` | Neon serverless Postgres (needs the `vector` extension). Unset ⇒ in-process PGlite. |
 | `GITHUB_TOKEN` | Raises GitHub rate limits and allows private repos. |
 | `MCP_BEARER_TOKEN` | If set, the MCP endpoint requires `Authorization: Bearer <token>`. |
+| `CONTEXTUAL_LLM` | Opt in to LLM-generated contextual retrieval at ingest. Off by default: it costs one model call per chunk, which no serverless request budget survives. |
+
+**Switching embedding providers requires a re-index.** Vectors from different
+providers occupy different spaces, so a repo indexed under one and queried under
+another returns noise. Each repo records the model it was built with; the UI marks
+mismatched repos as *stale index* and refuses to answer from them, and re-ingesting
+a repo whose provider changed drops its chunks and re-embeds instead of taking the
+incremental path.
 
 ---
 

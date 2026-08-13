@@ -21,7 +21,7 @@ export type ChatEvent =
   | { type: "error"; message: string };
 
 export interface Usage {
-  mode: "openai" | "local";
+  mode: "openai" | "gemini" | "local";
   tokensIn: number;
   tokensOut: number;
   costUsd: number;
@@ -49,11 +49,16 @@ export interface RepoInfo {
   files: number;
   chunks: number;
   indexedAt: string | null;
+  /** Embedding provider this repo was indexed with. Compared against
+   *  `Mode.embedModel`; a mismatch means the stored vectors are unusable. */
+  embedModel: string | null;
 }
 
 export interface Mode {
   db: "neon" | "pglite";
-  models: "openai" | "local";
+  models: "openai" | "gemini" | "local";
+  /** Embedding provider in use right now — see `RepoInfo.embedModel`. */
+  embedModel: string;
   /** Index is per-instance, not shared — see the note in `lib/config`. */
   ephemeral: boolean;
 }

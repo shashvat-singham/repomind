@@ -156,14 +156,15 @@ export async function repoStats(repoId: string): Promise<{
 
 /** List all repos currently indexed (for the picker + MCP discovery). */
 export async function listRepos(): Promise<
-  { id: string; owner: string; name: string; ref: string; status: string; files: number; chunks: number; indexedAt: string | null }[]
+  { id: string; owner: string; name: string; ref: string; status: string; files: number; chunks: number; indexedAt: string | null; embedModel: string | null }[]
 > {
   const db = await getDb();
   const rows = await db.query<{
     id: string; owner: string; name: string; ref: string; status: string;
     file_count: number; chunk_count: number; indexed_at: string | null;
+    embed_model: string | null;
   }>(
-    `SELECT id, owner, name, ref, status, file_count, chunk_count, indexed_at
+    `SELECT id, owner, name, ref, status, file_count, chunk_count, indexed_at, embed_model
      FROM repos ORDER BY indexed_at DESC NULLS LAST, created_at DESC`,
   );
   return rows.map((r) => ({
@@ -175,5 +176,6 @@ export async function listRepos(): Promise<
     files: Number(r.file_count),
     chunks: Number(r.chunk_count),
     indexedAt: r.indexed_at,
+    embedModel: r.embed_model,
   }));
 }

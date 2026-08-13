@@ -36,7 +36,12 @@ export default function Home() {
   // Selected, but the server doesn't know it — an ingest that landed on another
   // instance. Say so, rather than showing the same blank state as "nothing yet".
   const unreachable = selected !== null && selectedRepo === null;
-  const ready = selectedRepo?.status === "ready";
+  // Indexed under a different embedding provider — its vectors can't be searched
+  // with the current one, so answering would be noise dressed up as citations.
+  const staleIndex =
+    !!selectedRepo && !!mode && !!selectedRepo.embedModel &&
+    selectedRepo.embedModel !== mode.embedModel;
+  const ready = selectedRepo?.status === "ready" && !staleIndex;
 
   return (
     <div className="app">
@@ -65,7 +70,9 @@ export default function Home() {
             </div>
             <div className="main-sub">
               {selectedRepo
-                ? `${selectedRepo.ref} · hybrid RAG · ${mode?.models === "openai" ? "agentic tool loop" : "local synthesis"}`
+                ? staleIndex
+                  ? `Indexed with ${selectedRepo.embedModel}, but this deployment now embeds with ${mode?.embedModel}. Re-index it to ask questions.`
+                  : `${selectedRepo.ref} · hybrid RAG · ${mode?.models !== "local" ? "agentic tool loop" : "local synthesis"}`
                 : unreachable
                   ? "Indexed, but this server instance can't see it — nothing here can be answered. Details in the sidebar."
                   : "Index a public GitHub repo to start asking questions"}
@@ -74,7 +81,9 @@ export default function Home() {
           {selectedRepo ? (
             <div className="head-badges">
               <span className="chip">{selectedRepo.chunks} chunks</span>
-              <span className={`chip ${ready ? "chip-on" : ""}`}>{selectedRepo.status}</span>
+              <span className={`chip ${ready ? "chip-on" : staleIndex ? "chip-warn" : ""}`}>
+                {staleIndex ? "stale index" : selectedRepo.status}
+              </span>
             </div>
           ) : unreachable ? (
             <div className="head-badges">

@@ -22,6 +22,12 @@ const PRICES: Record<string, { in: number; out: number }> = {
   "gpt-4.1-mini": { in: 0.4, out: 1.6 },
   "text-embedding-3-small": { in: 0.02, out: 0 },
   "text-embedding-3-large": { in: 0.13, out: 0 },
+  // Google list prices (paid tier). On the free tier these calls bill nothing,
+  // so the figure shown is an upper bound on the same traffic's real cost.
+  "gemini-2.5-flash": { in: 0.3, out: 2.5 },
+  "gemini-2.5-flash-lite": { in: 0.1, out: 0.4 },
+  "gemini-2.5-pro": { in: 1.25, out: 10 },
+  "gemini-embedding-001": { in: 0.15, out: 0 },
   // Local models cost nothing.
   "local-hashing-vectorizer-1536": { in: 0, out: 0 },
 };

@@ -9,7 +9,13 @@ import type { SearchHit } from "@/lib/agent/tools-core";
  * there is nothing to hallucinate. The prose is templated but the *content* is
  * fully driven by hybrid retrieval, which is the part being demonstrated.
  */
-export function synthesizeLocalAnswer(question: string, hits: SearchHit[]): string {
+export function synthesizeLocalAnswer(
+  question: string,
+  hits: SearchHit[],
+  /** True when we got here because a configured LLM call failed, not because
+   *  no key is set. The footer must not claim the opposite. */
+  degraded = false,
+): string {
   if (hits.length === 0) {
     return "I couldn't find anything in this repository that matches your question. Try naming a specific symbol, file, or feature — or re-index the repo if it looks incomplete.";
   }
@@ -48,8 +54,11 @@ export function synthesizeLocalAnswer(question: string, hits: SearchHit[]): stri
   lines.push("```");
   lines.push("");
   lines.push(
-    "_Answer synthesized locally from hybrid retrieval (no LLM key set). " +
-      "Add an OpenAI key to enable the full agentic loop with natural-language reasoning over these same citations._",
+    degraded
+      ? "_The configured model call failed, so this answer was synthesized locally from hybrid retrieval. " +
+          "The citations above are the real retrieved chunks — only the prose is templated._"
+      : "_Answer synthesized locally from hybrid retrieval (no LLM key set). " +
+          "Add an OpenAI or Gemini key to enable the full agentic loop with natural-language reasoning over these same citations._",
   );
 
   return lines.join("\n");

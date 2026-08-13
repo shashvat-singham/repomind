@@ -86,3 +86,8 @@ CREATE TABLE IF NOT EXISTS semantic_cache (
 );
 
 CREATE INDEX IF NOT EXISTS semantic_cache_repo_idx ON semantic_cache (repo_id);
+
+-- Cached questions are matched by embedding, so an entry is only comparable to
+-- queries embedded by the same provider. Without this, switching providers
+-- compares vectors from two different spaces.
+ALTER TABLE semantic_cache ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT 'unknown';

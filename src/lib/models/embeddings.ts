@@ -1,4 +1,4 @@
-import { config, EMBED_DIM, usingOpenAI } from "@/lib/config";
+import { config, EMBED_DIM, usingGemini, usingOpenAI } from "@/lib/config";
 
 /**
  * Embedding provider abstraction.
@@ -139,8 +139,59 @@ const openaiProvider: EmbeddingProvider = {
   },
 };
 
+// ── Gemini provider ─────────────────────────────────────────────────────────
+
+/**
+ * `gemini-embedding-001` is natively 3072-d but accepts `outputDimensionality`,
+ * so we ask for 1536 and keep the schema identical to the other providers.
+ * Google only L2-normalises the full-width vectors — truncated ones come back
+ * with a norm around 0.7 — so we normalise here. Cosine distance is
+ * scale-invariant, but the local provider emits unit vectors and the reranker
+ * treats scores as comparable, so keeping every provider on the unit sphere
+ * avoids a subtle inconsistency.
+ */
+const GEMINI_MAX_INPUT_CHARS = 7500; // model caps input at 2048 tokens
+
+const geminiProvider: EmbeddingProvider = {
+  id: config.geminiEmbeddingModel,
+  dim: EMBED_DIM,
+  async embed(texts) {
+    const model = `models/${config.geminiEmbeddingModel}`;
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${model}:batchEmbedContents?key=${encodeURIComponent(config.geminiApiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requests: texts.map((t) => ({
+            model,
+            content: { parts: [{ text: t.slice(0, GEMINI_MAX_INPUT_CHARS) }] },
+            outputDimensionality: EMBED_DIM,
+          })),
+        }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Gemini embeddings failed (${res.status}): ${body.slice(0, 300)}`);
+    }
+    const json = (await res.json()) as { embeddings: { values: number[] }[] };
+    // batchEmbedContents preserves request order, so no index sorting needed.
+    return json.embeddings.map((e) => l2Normalise(e.values));
+  },
+};
+
+function l2Normalise(vec: number[]): number[] {
+  let norm = 0;
+  for (const v of vec) norm += v * v;
+  norm = Math.sqrt(norm) || 1;
+  return vec.map((v) => v / norm);
+}
+
 export function getEmbeddingProvider(): EmbeddingProvider {
-  return usingOpenAI ? openaiProvider : localProvider;
+  if (usingOpenAI) return openaiProvider;
+  if (usingGemini) return geminiProvider;
+  return localProvider;
 }
 
 /** Embed in batches to respect provider payload limits and keep memory bounded. */

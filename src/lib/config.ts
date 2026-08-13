@@ -11,6 +11,12 @@ function str(name: string, fallback = ""): string {
   return v === undefined || v === "" ? fallback : v;
 }
 
+function bool(name: string, fallback = false): boolean {
+  const v = process.env[name];
+  if (v === undefined || v === "") return fallback;
+  return v === "1" || v.toLowerCase() === "true";
+}
+
 function int(name: string, fallback: number): number {
   const v = process.env[name];
   if (v === undefined || v === "") return fallback;
@@ -26,7 +32,27 @@ export const config = {
   embeddingModel: str("EMBEDDING_MODEL", "text-embedding-3-small"),
   chatModel: str("CHAT_MODEL", "gpt-4o-mini"),
 
+  /** Google AI Studio key. Used when no OpenAI key is set. */
+  geminiApiKey: str("GEMINI_API_KEY", str("GOOGLE_GENERATIVE_AI_API_KEY")),
+  // gemini-2.5-* is still listed by the models endpoint but rejects new keys
+  // ("no longer available to new users"), so the default is a current model that
+  // was verified to accept function declarations.
+  geminiChatModel: str("GEMINI_CHAT_MODEL", "gemini-3.1-flash-lite"),
+  // gemini-embedding-001 is the only Gemini embedder that can emit 1536-d
+  // vectors, which is what keeps the schema identical across providers.
+  geminiEmbeddingModel: str("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"),
+
   githubToken: str("GITHUB_TOKEN"),
+
+  /**
+   * LLM-generated contextual retrieval at ingest. Off by default even when a key
+   * is present: it costs one sequential model call per chunk, so a 1,800-chunk
+   * repo would need 1,800 round trips — hours of wall clock and instant free-tier
+   * throttling, against a 60s function ceiling. The deterministic context
+   * (path + symbol + extractive line) is what actually runs in the demo. Turn
+   * this on only with a background/queued ingestion path.
+   */
+  contextualLLM: bool("CONTEXTUAL_LLM"),
 
   rateLimitRpm: int("RATE_LIMIT_RPM", 30),
   mcpBearerToken: str("MCP_BEARER_TOKEN"),
@@ -47,6 +73,9 @@ export const usingCloudDb = config.databaseUrl.length > 0;
 /** True when a real OpenAI key is configured (enables embeddings + LLM). */
 export const usingOpenAI = config.openaiApiKey.startsWith("sk-");
 
+/** Gemini is the fallback provider: used only when OpenAI is not configured. */
+export const usingGemini = !usingOpenAI && config.geminiApiKey.length > 0;
+
 /**
  * Embedding dimension. We fix this at 1536 for both providers so a database
  * indexed in local mode stays compatible if you later add an OpenAI key:
@@ -57,7 +86,14 @@ export const EMBED_DIM = 1536;
 
 export type Mode = {
   db: "neon" | "pglite";
-  models: "openai" | "local";
+  models: "openai" | "gemini" | "local";
+  /**
+   * Id of the embedding provider currently in use. Vectors from different
+   * providers live in different spaces, so a repo indexed under one and queried
+   * under another returns nonsense — the UI compares this against each repo's
+   * stored `embed_model` and refuses to answer on a mismatch.
+   */
+  embedModel: string;
   /**
    * True when the index is NOT shared across server instances: PGlite on a
    * multi-instance serverless host keeps its data in that instance's own /tmp,
@@ -71,7 +107,16 @@ export type Mode = {
 export function currentMode(): Mode {
   return {
     db: usingCloudDb ? "neon" : "pglite",
-    models: usingOpenAI ? "openai" : "local",
+    models: usingOpenAI ? "openai" : usingGemini ? "gemini" : "local",
+    embedModel: currentEmbedModelId(),
     ephemeral: !usingCloudDb && Boolean(process.env.VERCEL),
   };
+}
+
+/** Kept here (not in the embeddings module) so client-facing config has no
+ *  server-only imports. Must match `EmbeddingProvider.id`. */
+export function currentEmbedModelId(): string {
+  if (usingOpenAI) return config.embeddingModel;
+  if (usingGemini) return config.geminiEmbeddingModel;
+  return "local-hashing-vectorizer-1536";
 }

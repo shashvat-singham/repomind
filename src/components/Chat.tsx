@@ -191,14 +191,18 @@ export function Chat({
                         {t.repo}
                       </span>
                     )}
-                    <span className={`chip ${t.usage.mode === "openai" ? "chip-live" : ""}`}>
-                      {t.usage.mode === "openai" ? "LLM agent" : "local synthesis"}
+                    <span className={`chip ${t.usage.mode !== "local" ? "chip-live" : ""}`}>
+                      {t.usage.mode === "local" ? "local synthesis" : `LLM agent · ${t.usage.mode}`}
                     </span>
                     <span>{t.usage.totalMs} ms</span>
-                    {t.usage.mode === "openai" && (
+                    {t.usage.mode !== "local" && (
                       <>
                         <span>{t.usage.tokensIn + t.usage.tokensOut} tok</span>
-                        <span>${t.usage.costUsd.toFixed(5)}</span>
+                        {/* No list price on file for this model — say so rather
+                            than render a confident $0.00000. */}
+                        <span title={t.usage.costUsd === 0 ? "No list price recorded for this model" : undefined}>
+                          {t.usage.costUsd === 0 ? "cost n/a" : `$${t.usage.costUsd.toFixed(5)}`}
+                        </span>
                       </>
                     )}
                     <span>{t.citations.length} sources</span>

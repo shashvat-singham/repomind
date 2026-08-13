@@ -1,6 +1,6 @@
 import type { Db } from "@/lib/db/client";
 import { insertChunks } from "@/lib/db/chunks";
-import { embedBatched } from "@/lib/models/embeddings";
+import { embedBatched, getEmbeddingProvider } from "@/lib/models/embeddings";
 import { countTokens } from "@/lib/obs/tokens";
 import { chunkFile } from "@/lib/ingest/chunker";
 import { FIXTURE_FILES } from "../../../evals/fixture-repo";
@@ -22,17 +22,28 @@ import { FIXTURE_FILES } from "../../../evals/fixture-repo";
 const DEMO_REPO_ID = "demo/acme-service@main";
 
 export async function seedDemoRepo(db: Db): Promise<void> {
-  const existing = await db.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM chunks WHERE repo_id = $1`,
+  const provider = getEmbeddingProvider();
+  const existing = await db.query<{ n: string; embed_model: string | null }>(
+    `SELECT (SELECT count(*) FROM chunks WHERE repo_id = $1)::text AS n,
+            (SELECT embed_model FROM repos WHERE id = $1) AS embed_model`,
     [DEMO_REPO_ID],
   );
-  if (Number(existing[0]?.n ?? 0) > 0) return; // already seeded
+  const seeded = Number(existing[0]?.n ?? 0) > 0;
+  const modelMatches = existing[0]?.embed_model === provider.id;
+  if (seeded && modelMatches) return; // already seeded with the current provider
+
+  // Seeded under a different embedding provider: those vectors are unsearchable
+  // now. Drop them and rebuild, otherwise the one repo that is supposed to always
+  // work would sit there permanently marked as a stale index.
+  if (seeded) {
+    await db.query(`DELETE FROM chunks WHERE repo_id = $1`, [DEMO_REPO_ID]);
+  }
 
   await db.query(
     `INSERT INTO repos (id, owner, name, ref, status, embed_model)
-     VALUES ($1,'demo','acme-service','main','indexing','local')
-     ON CONFLICT (owner, name, ref) DO UPDATE SET status='indexing'`,
-    [DEMO_REPO_ID],
+     VALUES ($1,'demo','acme-service','main','indexing',$2)
+     ON CONFLICT (owner, name, ref) DO UPDATE SET status='indexing', embed_model=$2`,
+    [DEMO_REPO_ID, provider.id],
   );
 
   const chunks = Object.entries(FIXTURE_FILES).flatMap(([path, src]) => chunkFile(path, src));

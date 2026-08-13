@@ -154,6 +154,24 @@ export async function repoStats(repoId: string): Promise<{
   };
 }
 
+/**
+ * Drop an indexed repo. Chunks go with it via the ON DELETE CASCADE on
+ * `chunks.repo_id`; cached answers are removed explicitly because
+ * `semantic_cache` has no foreign key, and an answer about a repo that no longer
+ * exists is only a way to resurrect it. `query_log` rows are left alone on
+ * purpose — they are the cost/latency history, not repo state.
+ */
+export async function deleteRepo(repoId: string): Promise<boolean> {
+  const db = await getDb();
+  const rows = await db.query<{ id: string }>(
+    `DELETE FROM repos WHERE id = $1 RETURNING id`,
+    [repoId],
+  );
+  if (rows.length === 0) return false;
+  await db.query(`DELETE FROM semantic_cache WHERE repo_id = $1`, [repoId]);
+  return true;
+}
+
 /** List all repos currently indexed (for the picker + MCP discovery). */
 export async function listRepos(): Promise<
   { id: string; owner: string; name: string; ref: string; status: string; files: number; chunks: number; indexedAt: string | null; embedModel: string | null }[]

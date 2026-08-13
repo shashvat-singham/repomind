@@ -55,6 +55,13 @@ export default function Home() {
             setRefreshKey((k) => k + 1);
             return loadRepos();
           }}
+          onRemoved={(id) => {
+            // Don't leave the app pointing at something that no longer exists —
+            // that is the "unavailable on this instance" state, and it would be
+            // misleading here.
+            setSelected((cur) => (cur === id ? null : cur));
+            setCitation(null);
+          }}
         />
       </aside>
 

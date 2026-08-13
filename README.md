@@ -100,6 +100,7 @@ Everything is optional — see [`.env.example`](.env.example).
 | `DATABASE_URL` | Neon serverless Postgres (needs the `vector` extension). Unset ⇒ in-process PGlite. |
 | `GITHUB_TOKEN` | Raises GitHub rate limits and allows private repos. |
 | `MCP_BEARER_TOKEN` | If set, the MCP endpoint requires `Authorization: Bearer <token>`. |
+| `ADMIN_TOKEN` | If set, `DELETE /api/repos?id=…` (remove an index) requires the same bearer header. Unset ⇒ removal is open, like the rest of the demo API. |
 | `CONTEXTUAL_LLM` | Opt in to LLM-generated contextual retrieval at ingest. Off by default: it costs one model call per chunk, which no serverless request budget survives. |
 
 **Switching embedding providers requires a re-index.** Vectors from different

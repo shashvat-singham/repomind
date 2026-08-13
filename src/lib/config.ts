@@ -57,6 +57,9 @@ export const config = {
   rateLimitRpm: int("RATE_LIMIT_RPM", 30),
   mcpBearerToken: str("MCP_BEARER_TOKEN"),
 
+  /** When set, removing an indexed repo requires this as a bearer token. */
+  adminToken: str("ADMIN_TOKEN"),
+
   /**
    * Directory where PGlite persists when DATABASE_URL is unset. On Vercel the
    * project filesystem is read-only, but /tmp is writable (per warm instance),

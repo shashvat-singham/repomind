@@ -5,12 +5,16 @@ import { postEventStream } from "@/lib/useEventStream";
 
 const SAMPLES = ["tiangolo/fastapi", "expressjs/express", "pallets/flask", "honojs/hono"];
 
+/** Re-seeded on every boot, so removing it would only make it come back. */
+const DEMO_REPO_ID = "demo/acme-service@main";
+
 export function Sidebar({
   repos,
   mode,
   selected,
   onSelect,
   onIngested,
+  onRemoved,
 }: {
   repos: RepoInfo[];
   mode: Mode | null;
@@ -18,13 +22,36 @@ export function Sidebar({
   onSelect: (id: string) => void;
   /** Refreshes the repo list and resolves with it, so we can verify the write. */
   onIngested: () => Promise<RepoInfo[]>;
+  /** Lets the page clear its selection if the removed repo was the active one. */
+  onRemoved: (id: string) => void;
 }) {
   const [repo, setRepo] = useState("");
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [progress, setProgress] = useState<{ files: number; done: number; total: number } | null>(null);
   const [waiting, setWaiting] = useState<number | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const abortRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+
+  async function remove(id: string) {
+    setRemoving(id);
+    try {
+      const res = await fetch(`/api/repos?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setLog((p) => [...p.slice(-40), `✗ ${body.error ?? `HTTP ${res.status}`}`]);
+        return;
+      }
+      await onIngested(); // same refresh path: re-read the list from the server
+      onRemoved(id);
+    } catch (e) {
+      setLog((p) => [...p.slice(-40), `✗ ${(e as Error).message}`]);
+    } finally {
+      setRemoving(null);
+      setConfirmId(null);
+    }
+  }
 
   /**
    * One server pass. A provider rate limit ends a pass early rather than failing
@@ -216,23 +243,32 @@ export function Sidebar({
           // Indexed under a different embedding model: its vectors are in
           // another space, so searching them would return noise.
           const stale = !!mode && !!r.embedModel && r.embedModel !== mode.embedModel;
+          const isDemo = r.id === DEMO_REPO_ID;
           return (
-            <button
-              key={r.id}
-              className={`repo-item ${selected === r.id ? "active" : ""}`}
-              onClick={() => onSelect(r.id)}
-            >
-              <div className="repo-name mono">{r.owner}/{r.name}</div>
-              <div className="repo-meta">
-                <span className={`dot dot-${stale ? "error" : r.status}`} />
-                {r.ref} · {r.files} files · {r.chunks} chunks
-              </div>
-              {stale && (
-                <div className="repo-stale">
-                  indexed with {r.embedModel} — re-index to use {mode.embedModel}
+            <div key={r.id} className={`repo-item ${selected === r.id ? "active" : ""}`}>
+              <button className="repo-pick" onClick={() => onSelect(r.id)}>
+                <div className="repo-name mono">{r.owner}/{r.name}</div>
+                <div className="repo-meta">
+                  <span className={`dot dot-${stale ? "error" : r.status}`} />
+                  {r.ref} · {r.files} files · {r.chunks} chunks
                 </div>
+                {stale && (
+                  <div className="repo-stale">
+                    indexed with {r.embedModel} — re-index to use {mode.embedModel}
+                  </div>
+                )}
+              </button>
+              {!isDemo && (
+                <button
+                  className={`repo-remove ${confirmId === r.id ? "confirming" : ""}`}
+                  title={isDemo ? "" : "Remove this index"}
+                  disabled={removing === r.id}
+                  onClick={() => (confirmId === r.id ? remove(r.id) : setConfirmId(r.id))}
+                >
+                  {removing === r.id ? "…" : confirmId === r.id ? "remove?" : "×"}
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
       </div>
@@ -272,9 +308,15 @@ export function Sidebar({
         .log-err { color:var(--danger); }
         .repo-list { display:flex; flex-direction:column; gap:6px; }
         .empty-hint { font-size:12px; color:var(--muted); }
-        .repo-item { text-align:left; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:9px 11px; cursor:pointer; transition:border-color .15s, background .15s, transform .12s; }
+        .repo-item { display:flex; align-items:flex-start; gap:4px; background:var(--panel-2); border:1px solid var(--border); border-radius:10px; padding:9px 11px; transition:border-color .15s, background .15s, transform .12s; }
         .repo-item:hover { border-color:var(--border-2); transform:translateX(2px); }
         .repo-item.active { border-color:var(--accent); background:#172038; box-shadow:inset 3px 0 0 var(--accent), var(--glow); }
+        .repo-pick { flex:1; min-width:0; text-align:left; background:transparent; border:none; padding:0; cursor:pointer; color:inherit; font:inherit; }
+        .repo-remove { flex:none; align-self:center; background:transparent; border:1px solid transparent; border-radius:6px;
+                       color:var(--muted); font-size:12px; line-height:1; padding:4px 6px; cursor:pointer; }
+        .repo-item:hover .repo-remove { border-color:var(--border-2); }
+        .repo-remove:hover { color:var(--danger); border-color:var(--danger); }
+        .repo-remove.confirming { color:var(--danger); border-color:var(--danger); font-size:10.5px; }
         .repo-name { font-size:13px; }
         .repo-meta { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; margin-top:3px; }
         .repo-stale { font-size:10.5px; line-height:1.45; color:var(--danger); margin-top:4px; }

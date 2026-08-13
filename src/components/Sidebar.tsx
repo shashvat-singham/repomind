@@ -16,7 +16,8 @@ export function Sidebar({
   mode: Mode | null;
   selected: string | null;
   onSelect: (id: string) => void;
-  onIngested: () => void;
+  /** Refreshes the repo list and resolves with it, so we can verify the write. */
+  onIngested: () => Promise<RepoInfo[]>;
 }) {
   const [repo, setRepo] = useState("");
   const [busy, setBusy] = useState(false);
@@ -29,6 +30,7 @@ export function Sidebar({
     setLog([]);
     setProgress({ files: 0, done: 0, total: 0 });
     const push = (s: string) => setLog((p) => [...p.slice(-40), s]);
+    let indexedId: string | null = null;
 
     try {
       await postEventStream<IngestEvent>("/api/ingest", { repo: target }, (ev) => {
@@ -49,12 +51,24 @@ export function Sidebar({
             push(`✓ indexed ${ev.chunks} chunks from ${ev.files} files in ${(ev.ms / 1000).toFixed(1)}s`);
             if (ev.reused) push(`  (${ev.reused} chunks reused — incremental)`);
             setProgress(null);
+            indexedId = ev.repoId;
             onSelect(ev.repoId);
-            onIngested();
             break;
           case "error": push(`✗ ${ev.message}`); break;
         }
       });
+
+      // The ingest can succeed and still be unreachable: on a serverless host
+      // without a shared database, the write lands in one instance's /tmp while
+      // the next request is served by another. Verify instead of assuming.
+      if (indexedId) {
+        const after = await onIngested();
+        if (!after.some((r) => r.id === indexedId)) {
+          push(`✗ indexed, but the server can't see this repo — the write went to`);
+          push(`  one instance's local storage. Set DATABASE_URL (Neon) for a`);
+          push(`  shared index; until then only the demo repo is answerable.`);
+        }
+      }
     } catch (e) {
       push(`✗ ${(e as Error).message}`);
     } finally {
@@ -80,6 +94,15 @@ export function Sidebar({
           <span className={`chip ${mode.models === "openai" ? "chip-on" : ""}`} title="Model provider">
             {mode.models === "openai" ? "OpenAI" : "local models"}
           </span>
+        </div>
+      )}
+
+      {mode?.ephemeral && (
+        <div className="warn-note">
+          Each server instance holds its own index in <span className="mono">/tmp</span>, so a repo
+          you index here may not be visible to the next request. Set{" "}
+          <span className="mono">DATABASE_URL</span> (Neon) for a shared, durable index. The demo
+          repo below is seeded on every instance and always works.
         </div>
       )}
 
@@ -161,6 +184,8 @@ export function Sidebar({
         .modes { display:flex; gap:6px; flex-wrap:wrap; }
         .chip-on { color:var(--accent-2); border-color:#2c5b4c; }
         .section-label { font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-top:6px; }
+        .warn-note { font-size:11.5px; line-height:1.55; color:var(--warn); border:1px solid #5c4a1f;
+                     background:rgba(92,74,31,0.12); border-radius:9px; padding:9px 10px; }
         .samples { display:flex; flex-wrap:wrap; gap:6px; }
         .sample { font-size:11.5px; color:var(--muted); background:transparent; border:1px dashed var(--border);
                   border-radius:999px; padding:3px 9px; cursor:pointer; }

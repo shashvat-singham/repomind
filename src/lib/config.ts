@@ -58,11 +58,20 @@ export const EMBED_DIM = 1536;
 export type Mode = {
   db: "neon" | "pglite";
   models: "openai" | "local";
+  /**
+   * True when the index is NOT shared across server instances: PGlite on a
+   * multi-instance serverless host keeps its data in that instance's own /tmp,
+   * so a repo indexed by one request can be invisible to the next. The UI
+   * surfaces this, because otherwise a successful ingest silently disappears.
+   * Local dev is single-process, so PGlite there is not ephemeral in this sense.
+   */
+  ephemeral: boolean;
 };
 
 export function currentMode(): Mode {
   return {
     db: usingCloudDb ? "neon" : "pglite",
     models: usingOpenAI ? "openai" : "local",
+    ephemeral: !usingCloudDb && Boolean(process.env.VERCEL),
   };
 }

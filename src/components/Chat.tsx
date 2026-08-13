@@ -12,6 +12,9 @@ interface Turn {
   usage?: Usage;
   trace: { tool: string; args: Record<string, unknown> }[];
   status?: string;
+  /** Which repo this turn was answered from. The transcript survives a repo
+   *  switch, so without this an old answer reads as if it were the new repo's. */
+  repo?: string;
 }
 
 function MicIcon() {
@@ -59,18 +62,24 @@ export function Chat({
   };
 
   async function ask(question: string) {
-    if (!repoId || !question.trim() || busy) return;
+    // `ready` matters as much as `repoId`: a repo can be selected but unknown to
+    // the server (indexed on another instance), and asking then yields an empty,
+    // misleading answer.
+    if (!repoId || !ready || !question.trim() || busy) return;
     if (speech.listening) speech.stop();
     setBusy(true);
     setInput("");
+    const repo = repoId.split("@")[0];
+    // Only carry history from the same repo — a switch makes earlier turns
+    // irrelevant context for the new codebase.
     const history = turns
-      .filter((t) => t.text)
+      .filter((t) => t.text && t.repo === repo)
       .map((t) => ({ role: t.role, content: t.text }));
 
     setTurns((prev) => [
       ...prev,
-      { role: "user", text: question, citations: [], trace: [] },
-      { role: "assistant", text: "", citations: [], trace: [], status: "starting…" },
+      { role: "user", text: question, citations: [], trace: [], repo },
+      { role: "assistant", text: "", citations: [], trace: [], status: "starting…", repo },
     ]);
     scrollToBottom();
 
@@ -174,6 +183,14 @@ export function Chat({
 
                 {t.usage && (
                   <div className="usage">
+                    {t.repo && (
+                      <span
+                        className={`chip mono ${t.repo !== repoId?.split("@")[0] ? "chip-stale" : ""}`}
+                        title="The repository this answer was retrieved from"
+                      >
+                        {t.repo}
+                      </span>
+                    )}
                     <span className={`chip ${t.usage.mode === "openai" ? "chip-live" : ""}`}>
                       {t.usage.mode === "openai" ? "LLM agent" : "local synthesis"}
                     </span>
@@ -272,6 +289,8 @@ export function Chat({
         .cite-lines { color:var(--muted); font-size:12px; margin-left:auto; }
         .usage { display:flex; flex-wrap:wrap; gap:12px; margin-top:12px; font-size:11.5px; color:var(--muted); align-items:center; }
         .chip-live { color:var(--accent-2); border-color:#2c5b4c; }
+        /* Answer from a repo other than the one now selected — flag it, don't hide it. */
+        .chip-stale { color:var(--warn); border-color:#5c4a1f; }
         .composer { display:flex; gap:10px; padding:14px 16px; border-top:1px solid var(--border);
                     background:linear-gradient(180deg, rgba(15,17,24,0.6), var(--panel)); backdrop-filter:blur(8px); flex-wrap:wrap; }
         .composer-field { position:relative; flex:1; display:flex; align-items:center; }

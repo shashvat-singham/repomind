@@ -13,15 +13,18 @@ export default function Home() {
   const [citation, setCitation] = useState<Citation | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const loadRepos = useCallback(async () => {
+  // Returns the fresh list so callers (the ingest flow) can check whether the
+  // repo they just wrote is actually visible to the server.
+  const loadRepos = useCallback(async (): Promise<RepoInfo[]> => {
     try {
       const res = await fetch("/api/repos");
       const data = (await res.json()) as { repos: RepoInfo[]; mode: Mode };
       setRepos(data.repos);
       setMode(data.mode);
       setSelected((cur) => cur ?? data.repos.find((r) => r.status === "ready")?.id ?? null);
+      return data.repos;
     } catch {
-      /* ignore */
+      return [];
     }
   }, []);
 
@@ -30,6 +33,9 @@ export default function Home() {
   }, [loadRepos]);
 
   const selectedRepo = repos.find((r) => r.id === selected) ?? null;
+  // Selected, but the server doesn't know it — an ingest that landed on another
+  // instance. Say so, rather than showing the same blank state as "nothing yet".
+  const unreachable = selected !== null && selectedRepo === null;
   const ready = selectedRepo?.status === "ready";
 
   return (
@@ -41,8 +47,8 @@ export default function Home() {
           selected={selected}
           onSelect={setSelected}
           onIngested={() => {
-            loadRepos();
             setRefreshKey((k) => k + 1);
+            return loadRepos();
           }}
         />
       </aside>
@@ -51,20 +57,30 @@ export default function Home() {
         <div className="main-head">
           <div>
             <div className="main-title">
-              {selectedRepo ? `${selectedRepo.owner}/${selectedRepo.name}` : "No repository selected"}
+              {selectedRepo
+                ? `${selectedRepo.owner}/${selectedRepo.name}`
+                : unreachable
+                  ? selected.split("@")[0]
+                  : "No repository selected"}
             </div>
             <div className="main-sub">
               {selectedRepo
                 ? `${selectedRepo.ref} · hybrid RAG · ${mode?.models === "openai" ? "agentic tool loop" : "local synthesis"}`
-                : "Index a public GitHub repo to start asking questions"}
+                : unreachable
+                  ? "Indexed, but this server instance can't see it — nothing here can be answered. Details in the sidebar."
+                  : "Index a public GitHub repo to start asking questions"}
             </div>
           </div>
-          {selectedRepo && (
+          {selectedRepo ? (
             <div className="head-badges">
               <span className="chip">{selectedRepo.chunks} chunks</span>
               <span className={`chip ${ready ? "chip-on" : ""}`}>{selectedRepo.status}</span>
             </div>
-          )}
+          ) : unreachable ? (
+            <div className="head-badges">
+              <span className="chip chip-warn">unavailable on this instance</span>
+            </div>
+          ) : null}
         </div>
         <div className="main-chat">
           <Chat repoId={selected} ready={!!ready} onCite={setCitation} />
@@ -90,6 +106,7 @@ export default function Home() {
         .main-sub { font-size:12px; color:var(--muted); margin-top:2px; }
         .head-badges { display:flex; gap:6px; }
         .chip-on { color:var(--accent-2); border-color:#2c5b4c; }
+        .chip-warn { color:var(--warn); border-color:#5c4a1f; }
         .main-chat { flex:1; min-height:0; overflow:hidden; }
         @media (max-width: 1100px) {
           .app { grid-template-columns:260px 1fr; }

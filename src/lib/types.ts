@@ -54,4 +54,6 @@ export interface RepoInfo {
 export interface Mode {
   db: "neon" | "pglite";
   models: "openai" | "local";
+  /** Index is per-instance, not shared — see the note in `lib/config`. */
+  ephemeral: boolean;
 }

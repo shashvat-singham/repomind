@@ -121,14 +121,19 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
       vectors = await embedBatched(texts, BATCH);
     } catch (e) {
       if (e instanceof EmbeddingQuotaError) {
-        // Not a failure: stop cleanly and leave `pending` unwritten. Everything
-        // already inserted stays, and the next pass re-derives these same chunks
-        // and embeds them then.
+        // Not a failure: store whatever was embedded before the limit, then stop
+        // cleanly. The next pass re-derives the remaining chunks and embeds them.
         pause.hit = { retryAfterMs: e.retryAfterMs, message: e.message };
-        return;
+        vectors = e.embedded;
+      } else {
+        throw e;
       }
-      throw e;
     }
+    // `vectors` can be shorter than `pending` when a rate limit cut the batch
+    // short; only the chunks that actually have an embedding get written.
+    const embeddedChunks = pending.slice(0, vectors.length);
+    if (embeddedChunks.length === 0) return;
+
     // Embedding succeeded, so the provider works — now it is safe to drop the
     // vectors from the previous model.
     if (!clearedForNewModel) {
@@ -137,7 +142,7 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
     }
     await insertChunks(
       db,
-      pending.map((c, i) => ({
+      embeddedChunks.map((c, i) => ({
         repoId: id,
         path: c.path,
         lang: c.lang,
@@ -152,7 +157,11 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
         embedding: vectors[i]!,
       })),
     );
-    yield { type: "upserting" as const, done: pending.length, total: pending.length };
+    yield {
+      type: "upserting" as const,
+      done: embeddedChunks.length,
+      total: pending.length,
+    };
     pending.length = 0;
   };
 

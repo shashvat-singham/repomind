@@ -29,10 +29,16 @@ export interface EmbeddingProvider {
  */
 export class EmbeddingQuotaError extends Error {
   readonly retryAfterMs: number;
-  constructor(message: string, retryAfterMs: number) {
+  /**
+   * Vectors produced before the limit was reached. They cost quota, so the
+   * caller stores them rather than discarding the work and paying for it again.
+   */
+  readonly embedded: number[][];
+  constructor(message: string, retryAfterMs: number, embedded: number[][] = []) {
     super(message);
     this.name = "EmbeddingQuotaError";
     this.retryAfterMs = retryAfterMs;
+    this.embedded = embedded;
   }
 }
 
@@ -228,17 +234,43 @@ export function getEmbeddingProvider(): EmbeddingProvider {
   return localProvider;
 }
 
-/** Embed in batches to respect provider payload limits and keep memory bounded. */
+/** Smallest batch worth attempting before giving up and letting the caller wait. */
+const MIN_BATCH = 8;
+
+/**
+ * Embed in batches to respect provider payload limits and keep memory bounded.
+ *
+ * Rate limits are a budget of requests per window, and a rejected call does not
+ * spend any of it — so asking for 96 when 40 remain gets nothing, repeatedly,
+ * while asking for 40 makes progress. On a quota response we halve the batch and
+ * try again, down to {@link MIN_BATCH}; only when even that is refused do we
+ * propagate, which is the signal for the caller to pause and resume later.
+ */
 export async function embedBatched(
   texts: string[],
   batchSize = 96,
 ): Promise<number[][]> {
   const provider = getEmbeddingProvider();
   const out: number[][] = [];
-  for (let i = 0; i < texts.length; i += batchSize) {
-    const batch = texts.slice(i, i + batchSize);
-    const vecs = await provider.embed(batch);
-    out.push(...vecs);
+  let size = batchSize;
+  let i = 0;
+  while (i < texts.length) {
+    const batch = texts.slice(i, i + size);
+    try {
+      const vecs = await provider.embed(batch);
+      out.push(...vecs);
+      i += batch.length;
+    } catch (e) {
+      if (e instanceof EmbeddingQuotaError) {
+        if (size > MIN_BATCH) {
+          size = Math.max(MIN_BATCH, Math.floor(size / 2));
+          continue;
+        }
+        // Out of budget. Hand back what was embedded so it can be persisted.
+        throw new EmbeddingQuotaError(e.message, e.retryAfterMs, out);
+      }
+      throw e;
+    }
   }
   return out;
 }

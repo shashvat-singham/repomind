@@ -173,6 +173,19 @@ const geminiProvider: EmbeddingProvider = {
     );
     if (!res.ok) {
       const body = await res.text();
+      // Every item inside a batchEmbedContents call counts as one request against
+      // the per-minute quota (100/min on the free tier), so a repo with more
+      // chunks than that cannot be embedded inside a single function invocation.
+      // Re-running converges: chunks already embedded under this model are reused
+      // by content hash, so each attempt gets through another batch.
+      if (res.status === 429) {
+        throw new Error(
+          `Gemini embedding quota reached (100 requests/minute on the free tier, ` +
+            `one per chunk). ${texts.length} chunks were queued in this batch. ` +
+            `Wait a minute and re-index — already-embedded chunks are kept, so ` +
+            `repeated runs finish a large repo — or use a paid key.`,
+        );
+      }
       throw new Error(`Gemini embeddings failed (${res.status}): ${body.slice(0, 300)}`);
     }
     const json = (await res.json()) as { embeddings: { values: number[] }[] };

@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db/client";
 import { insertChunks } from "@/lib/db/chunks";
-import { embedBatched, getEmbeddingProvider } from "@/lib/models/embeddings";
+import { EmbeddingQuotaError, embedBatched, getEmbeddingProvider } from "@/lib/models/embeddings";
 import { hasLLM } from "@/lib/models/llm";
 import { config } from "@/lib/config";
 import { countTokens } from "@/lib/obs/tokens";
@@ -28,6 +28,8 @@ export type IngestEvent =
   | { type: "embedding"; done: number; total: number }
   | { type: "upserting"; done: number; total: number }
   | { type: "done"; repoId: string; files: number; chunks: number; reused: number; tokens: number; ms: number }
+  /** Rate limit hit: the index is partially built and resumes on the next pass. */
+  | { type: "partial"; repoId: string; chunks: number; retryAfterMs: number; message: string }
   | { type: "error"; message: string };
 
 export function repoId(ref: RepoRef, resolvedRef: string): string {
@@ -100,13 +102,33 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
   let tokens = 0;
   let reused = 0;
   const pending: EnrichedChunk[] = [];
-  const BATCH = 64;
+  // Sized against the tightest provider limit we know of: Gemini's free tier
+  // allows 100 embed requests per minute and counts each item in a batch
+  // separately, so a pass gets ~one batch of this size through per minute.
+  const BATCH = 96;
+
+  // Set when a rate limit stops this pass; the caller resumes later. Held in an
+  // object because it is assigned inside `flush`, and narrowing a plain `let`
+  // does not survive the closure.
+  const pause: { hit: { retryAfterMs: number; message: string } | null } = { hit: null };
 
   const flush = async function* () {
     if (pending.length === 0) return;
     const texts = pending.map((c) => c.embedText);
     yield { type: "embedding" as const, done: 0, total: pending.length };
-    const vectors = await embedBatched(texts, 96);
+    let vectors: number[][];
+    try {
+      vectors = await embedBatched(texts, BATCH);
+    } catch (e) {
+      if (e instanceof EmbeddingQuotaError) {
+        // Not a failure: stop cleanly and leave `pending` unwritten. Everything
+        // already inserted stays, and the next pass re-derives these same chunks
+        // and embeds them then.
+        pause.hit = { retryAfterMs: e.retryAfterMs, message: e.message };
+        return;
+      }
+      throw e;
+    }
     // Embedding succeeded, so the provider works — now it is safe to drop the
     // vectors from the previous model.
     if (!clearedForNewModel) {
@@ -150,10 +172,35 @@ export async function* ingestRepo(input: string): AsyncGenerator<IngestEvent> {
         pending.push(enriched);
         if (pending.length >= BATCH) {
           yield* flush();
+          if (pause.hit) break;
         }
       }
+      if (pause.hit) break;
     }
-    yield* flush();
+    if (!pause.hit) yield* flush();
+
+    if (pause.hit) {
+      // Partial index: skip the prune (we never finished walking the repo, so
+      // `seenHashes` would delete chunks that are simply further down the tree)
+      // and leave the repo in 'indexing' so nothing queries a half-built index.
+      const soFar = await db.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM chunks WHERE repo_id = $1`,
+        [id],
+      );
+      const built = Number(soFar[0]?.n ?? 0);
+      await db.query(
+        `UPDATE repos SET status='indexing', file_count=$2, chunk_count=$3 WHERE id=$1`,
+        [id, fileCount, built],
+      );
+      yield {
+        type: "partial",
+        repoId: id,
+        chunks: built,
+        retryAfterMs: pause.hit.retryAfterMs,
+        message: pause.hit.message,
+      };
+      return;
+    }
 
     // Prune chunks that no longer exist in the repo (deleted/renamed files).
     if (seenHashes.size > 0) {

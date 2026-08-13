@@ -38,6 +38,7 @@ export type IngestEvent =
   | { type: "embedding"; done: number; total: number }
   | { type: "upserting"; done: number; total: number }
   | { type: "done"; repoId: string; files: number; chunks: number; reused: number; tokens: number; ms: number }
+  | { type: "partial"; repoId: string; chunks: number; retryAfterMs: number; message: string }
   | { type: "error"; message: string };
 
 export interface RepoInfo {

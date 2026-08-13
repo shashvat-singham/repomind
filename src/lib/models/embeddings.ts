@@ -22,6 +22,28 @@ export interface EmbeddingProvider {
   embed(texts: string[]): Promise<number[][]>;
 }
 
+/**
+ * A rate limit, not a failure. Ingestion treats this as "pause here and resume",
+ * because the work already done is durable: chunks are keyed by content hash, so
+ * a later pass re-embeds only what is still missing.
+ */
+export class EmbeddingQuotaError extends Error {
+  readonly retryAfterMs: number;
+  constructor(message: string, retryAfterMs: number) {
+    super(message);
+    this.name = "EmbeddingQuotaError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** Google returns `retryDelay: "56s"` in the error details; default to a minute. */
+function parseRetryDelayMs(body: string): number {
+  const m = body.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+  const seconds = m ? Number(m[1]) : 60;
+  // Add a small margin — retrying exactly on the boundary tends to 429 again.
+  return Math.ceil(seconds * 1000) + 3000;
+}
+
 // ── Local hashing vectorizer ────────────────────────────────────────────────
 
 /** FNV-1a 32-bit — fast, stable, well-distributed for the hashing trick. */
@@ -179,11 +201,10 @@ const geminiProvider: EmbeddingProvider = {
       // Re-running converges: chunks already embedded under this model are reused
       // by content hash, so each attempt gets through another batch.
       if (res.status === 429) {
-        throw new Error(
-          `Gemini embedding quota reached (100 requests/minute on the free tier, ` +
-            `one per chunk). ${texts.length} chunks were queued in this batch. ` +
-            `Wait a minute and re-index — already-embedded chunks are kept, so ` +
-            `repeated runs finish a large repo — or use a paid key.`,
+        throw new EmbeddingQuotaError(
+          `Gemini embedding quota reached — 100 requests/minute on the free tier, ` +
+            `one per chunk.`,
+          parseRetryDelayMs(body),
         );
       }
       throw new Error(`Gemini embeddings failed (${res.status}): ${body.slice(0, 300)}`);

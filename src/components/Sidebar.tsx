@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { IngestEvent, RepoInfo, Mode } from "@/lib/types";
 import { postEventStream } from "@/lib/useEventStream";
 
@@ -23,40 +23,89 @@ export function Sidebar({
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [progress, setProgress] = useState<{ files: number; done: number; total: number } | null>(null);
+  const [waiting, setWaiting] = useState<number | null>(null);
+  const abortRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+
+  /**
+   * One server pass. A provider rate limit ends a pass early rather than failing
+   * it, so a repo bigger than the per-minute quota is indexed across several
+   * passes — each one re-derives the same chunks and embeds only what is still
+   * missing, which the content-hash dedup makes free.
+   */
+  async function runPass(
+    target: string,
+    push: (s: string) => void,
+  ): Promise<{ repoId: string | null; retryAfterMs: number | null }> {
+    let repoId: string | null = null;
+    let retryAfterMs: number | null = null;
+
+    await postEventStream<IngestEvent>("/api/ingest", { repo: target }, (ev) => {
+      switch (ev.type) {
+        case "resolving": push(`resolving ${ev.slug}…`); break;
+        case "resolved": push(`✓ ${ev.ref}${ev.sha ? ` @ ${ev.sha}` : ""}`); break;
+        case "file":
+          setProgress((p) => ({ ...(p ?? { done: 0, total: 0 }), files: ev.fileCount }));
+          if (ev.fileCount % 10 === 0) push(`scanned ${ev.fileCount} files…`);
+          break;
+        case "embedding":
+          setProgress((p) => ({ ...(p ?? { files: 0 }), done: 0, total: ev.total }));
+          break;
+        case "upserting":
+          setProgress((p) => ({ ...(p ?? { files: 0 }), done: ev.done, total: ev.total }));
+          break;
+        case "done":
+          push(`✓ indexed ${ev.chunks} chunks from ${ev.files} files in ${(ev.ms / 1000).toFixed(1)}s`);
+          if (ev.reused) push(`  (${ev.reused} chunks reused — incremental)`);
+          setProgress(null);
+          repoId = ev.repoId;
+          onSelect(ev.repoId);
+          break;
+        case "partial":
+          push(`⏸ ${ev.message}`);
+          push(`  ${ev.chunks} chunks stored so far — continuing automatically`);
+          setProgress(null);
+          repoId = ev.repoId;
+          retryAfterMs = ev.retryAfterMs;
+          break;
+        case "error": push(`✗ ${ev.message}`); break;
+      }
+    });
+
+    return { repoId, retryAfterMs };
+  }
 
   async function ingest(target: string) {
     if (!target.trim() || busy) return;
     setBusy(true);
     setLog([]);
     setProgress({ files: 0, done: 0, total: 0 });
+    abortRef.current = { cancelled: false };
+    const token = abortRef.current;
     const push = (s: string) => setLog((p) => [...p.slice(-40), s]);
     let indexedId: string | null = null;
 
     try {
-      await postEventStream<IngestEvent>("/api/ingest", { repo: target }, (ev) => {
-        switch (ev.type) {
-          case "resolving": push(`resolving ${ev.slug}…`); break;
-          case "resolved": push(`✓ ${ev.ref}${ev.sha ? ` @ ${ev.sha}` : ""}`); break;
-          case "file":
-            setProgress((p) => ({ ...(p ?? { done: 0, total: 0 }), files: ev.fileCount }));
-            if (ev.fileCount % 10 === 0) push(`scanned ${ev.fileCount} files…`);
-            break;
-          case "embedding":
-            setProgress((p) => ({ ...(p ?? { files: 0 }), done: 0, total: ev.total }));
-            break;
-          case "upserting":
-            setProgress((p) => ({ ...(p ?? { files: 0 }), done: ev.done, total: ev.total }));
-            break;
-          case "done":
-            push(`✓ indexed ${ev.chunks} chunks from ${ev.files} files in ${(ev.ms / 1000).toFixed(1)}s`);
-            if (ev.reused) push(`  (${ev.reused} chunks reused — incremental)`);
-            setProgress(null);
-            indexedId = ev.repoId;
-            onSelect(ev.repoId);
-            break;
-          case "error": push(`✗ ${ev.message}`); break;
+      for (let pass = 1; ; pass++) {
+        const { repoId, retryAfterMs } = await runPass(target, push);
+        indexedId = repoId ?? indexedId;
+        if (retryAfterMs === null) break; // finished (or errored)
+        if (token.cancelled) {
+          push(`■ stopped after pass ${pass} — re-index later to continue`);
+          break;
         }
-      });
+        // Count down visibly; a silent multi-minute pause looks like a hang.
+        for (let left = Math.ceil(retryAfterMs / 1000); left > 0; left--) {
+          if (token.cancelled) break;
+          setWaiting(left);
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        setWaiting(null);
+        if (token.cancelled) {
+          push(`■ stopped — re-index later to continue where this left off`);
+          break;
+        }
+        push(`↻ pass ${pass + 1}…`);
+      }
 
       // The ingest can succeed and still be unreachable: on a serverless host
       // without a shared database, the write lands in one instance's /tmp while
@@ -72,6 +121,7 @@ export function Sidebar({
     } catch (e) {
       push(`✗ ${(e as Error).message}`);
     } finally {
+      setWaiting(null);
       setBusy(false);
     }
   }
@@ -122,6 +172,17 @@ export function Sidebar({
           {busy ? "…" : "Index"}
         </button>
       </form>
+      {busy && (
+        <button
+          type="button"
+          className="stop-btn"
+          onClick={() => { abortRef.current.cancelled = true; }}
+        >
+          {waiting !== null
+            ? `waiting ${waiting}s for quota — stop`
+            : "stop after this pass"}
+        </button>
+      )}
       <div className="samples">
         {SAMPLES.map((s) => (
           <button key={s} className="sample" disabled={busy} onClick={() => { setRepo(s); ingest(s); }}>
@@ -196,6 +257,9 @@ export function Sidebar({
         .section-label { font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin-top:6px; }
         .warn-note { font-size:11.5px; line-height:1.55; color:var(--warn); border:1px solid #5c4a1f;
                      background:rgba(92,74,31,0.12); border-radius:9px; padding:9px 10px; }
+        .stop-btn { font-size:11.5px; color:var(--warn); background:transparent; border:1px dashed #5c4a1f;
+                    border-radius:8px; padding:6px 9px; cursor:pointer; text-align:center; }
+        .stop-btn:hover { border-style:solid; }
         .samples { display:flex; flex-wrap:wrap; gap:6px; }
         .sample { font-size:11.5px; color:var(--muted); background:transparent; border:1px dashed var(--border);
                   border-radius:999px; padding:3px 9px; cursor:pointer; }
